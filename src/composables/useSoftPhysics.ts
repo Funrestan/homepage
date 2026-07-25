@@ -25,6 +25,7 @@ type Particle = {
   dragTargetY: number
   returnRipplePending: boolean
   collisionImmuneUntil: number
+  dragVisualActive: Ref<boolean>
 }
 
 type PhysicsWave = {
@@ -148,12 +149,14 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
       const totalInverseMass = aInverseMass + bInverseMass
       const aShare = aInverseMass / totalInverseMass
       const bShare = bInverseMass / totalInverseMass
+      let approachSpeed = 0
 
       if (overlapX < overlapY) {
         const direction = dx >= 0 ? 1 : -1
         const push = Math.min(overlapX * 0.62, 12) * delta
         const relativeVelocity = (b.vx - a.vx) * direction
         const bounce = relativeVelocity < 0 ? -relativeVelocity * 0.58 : 0
+        approachSpeed = Math.max(0, -relativeVelocity)
         if (!a.dragging) {
           a.x -= direction * push * aShare
           a.vx -= direction * (push * 0.24 + bounce * aShare)
@@ -167,6 +170,7 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
         const push = Math.min(overlapY * 0.62, 12) * delta
         const relativeVelocity = (b.vy - a.vy) * direction
         const bounce = relativeVelocity < 0 ? -relativeVelocity * 0.58 : 0
+        approachSpeed = Math.max(0, -relativeVelocity)
         if (!a.dragging) {
           a.y -= direction * push * aShare
           a.vy -= direction * (push * 0.24 + bounce * aShare)
@@ -178,6 +182,9 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
       }
 
       const impact = clamp(Math.min(overlapX, overlapY) * 0.012, 0.025, 0.18)
+      const inertialDuration = clamp(420 + approachSpeed * 34 + impact * 900, 480, 1050)
+      if (!a.dragging) a.cooldownUntil = Math.max(a.cooldownUntil, time + inertialDuration)
+      if (!b.dragging) b.cooldownUntil = Math.max(b.cooldownUntil, time + inertialDuration)
       a.compression = Math.max(a.compression, impact)
       b.compression = Math.max(b.compression, impact)
     }
@@ -271,6 +278,8 @@ const tick = (time: number) => {
           particle.y = 0
           particle.vx = 0
           particle.vy = 0
+          particle.returnRipplePending = false
+          particle.dragVisualActive.value = false
         } else {
           const returnAge = Math.max(0, time - particle.cooldownUntil)
           const returnBoost = 1 + clamp(returnAge / 900, 0, 1.15)
@@ -292,6 +301,7 @@ const tick = (time: number) => {
             if (shouldRipple) particle.compression = Math.max(particle.compression, 0.14)
             particle.collisionImmuneUntil = time + 520
             particle.returnRipplePending = false
+            particle.dragVisualActive.value = false
 
             if (shouldRipple) {
               particle.element.classList.remove('is-impacting')
@@ -372,6 +382,7 @@ function handleGlobalPointerDown(event: PointerEvent) {
 export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   const elementRef: Ref<HTMLElement | null> = ref(null)
   const dragging = ref(false)
+  const dragVisualActive = ref(false)
 
   let particle: Particle | null = null
   let activePointer: number | null = null
@@ -407,6 +418,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       dragTargetY: 0,
       returnRipplePending: false,
       collisionImmuneUntil: 0,
+      dragVisualActive,
     }
 
     nextId += 1
@@ -480,6 +492,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     const crossedDragThreshold = Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY) > 5
     if (!moved && crossedDragThreshold) {
       moved = true
+      dragVisualActive.value = true
       if (!particle.element.hasPointerCapture(event.pointerId)) {
         particle.element.setPointerCapture(event.pointerId)
       }
@@ -502,6 +515,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
 
     suppressClick = moved
     particle.returnRipplePending = moved
+    if (!moved) dragVisualActive.value = false
     particle.vx += (particle.dragTargetX - particle.x) * 0.04
     particle.vy += (particle.dragTargetY - particle.y) * 0.04
     particle.dragging = false
@@ -521,6 +535,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   return {
     elementRef,
     dragging,
+    dragVisualActive,
     pointerDown,
     pointerMove,
     pointerUp,

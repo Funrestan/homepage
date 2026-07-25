@@ -16,6 +16,7 @@ const visualElement = ref<HTMLElement | null>(null)
 const {
   elementRef,
   dragging,
+  dragVisualActive,
   pointerDown,
   pointerMove,
   pointerUp,
@@ -32,7 +33,7 @@ defineExpose({
   <span
     ref="elementRef"
     class="soft-physics-item drag-word"
-    :class="{ 'is-dragging': dragging }"
+    :class="{ 'is-dragging': dragging, 'is-drag-active': dragVisualActive }"
     :style="{ '--float-delay': `${props.delay}s` }"
     :data-word="props.text || undefined"
     @pointerdown="pointerDown"

@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
 const {
   elementRef,
   dragging,
+  dragVisualActive,
   pointerDown,
   pointerMove,
   pointerUp,
@@ -31,7 +32,7 @@ const {
   <span
     ref="elementRef"
     class="soft-physics-item physics-item"
-    :class="[`physics-item--${props.shape}`, { 'is-dragging': dragging }]"
+    :class="[`physics-item--${props.shape}`, { 'is-dragging': dragging, 'is-drag-active': dragVisualActive }]"
     @pointerdown="pointerDown"
     @pointermove="pointerMove"
     @pointerup="pointerUp"

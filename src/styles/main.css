@@ -28,7 +28,8 @@ body {
     position: relative;
 }
 
-.soft-physics-item.is-dragging {
+.soft-physics-item.is-dragging,
+.soft-physics-item.is-drag-active {
     z-index: 50;
 }
 
@@ -44,7 +45,7 @@ body {
     transition: opacity 120ms ease, border-color 120ms ease, box-shadow 160ms ease;
 }
 
-.soft-physics-item.is-dragging::after {
+.soft-physics-item.is-drag-active::after {
     border-color: rgb(109 200 255 / 58%);
     opacity: 1;
     box-shadow:
