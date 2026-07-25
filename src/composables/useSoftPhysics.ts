@@ -14,6 +14,8 @@ type Particle = {
   cooldown: number
   x: number
   y: number
+  paintedX: number
+  paintedY: number
   vx: number
   vy: number
   z: number
@@ -24,6 +26,7 @@ type Particle = {
   dragTargetX: number
   dragTargetY: number
   returnRipplePending: boolean
+  returnRipplePrimed: boolean
   collisionImmuneUntil: number
   dragVisualActive: Ref<boolean>
 }
@@ -65,6 +68,8 @@ const paintParticle = (particle: Particle) => {
   particle.element.style.setProperty('--physics-scale-x', scaleX.toFixed(4))
   particle.element.style.setProperty('--physics-scale-y', scaleY.toFixed(4))
   particle.element.style.setProperty('--physics-layer', particle.z > 0.8 ? '12' : 'auto')
+  particle.paintedX = particle.x
+  particle.paintedY = particle.y
 }
 
 const propagateWaves = (items: Particle[], time: number) => {
@@ -243,6 +248,34 @@ const resolveViewportBounds = (items: Particle[], time: number) => {
   }
 }
 
+const getHomeCenter = (particle: Particle) => {
+  const rect = particle.element.getBoundingClientRect()
+  return {
+    x: rect.left + rect.width / 2 - particle.paintedX,
+    y: rect.top + rect.height / 2 - particle.paintedY,
+  }
+}
+
+const primeReturnRipple = (particle: Particle) => {
+  if (!particle.returnRipplePending || particle.returnRipplePrimed) return
+
+  const velocitySquared = particle.vx ** 2 + particle.vy ** 2
+  if (velocitySquared <= 0.0001) return
+
+  const framesToClosestApproach = -(particle.x * particle.vx + particle.y * particle.vy) / velocitySquared
+  if (framesToClosestApproach <= 0 || framesToClosestApproach > 100 / 16.67) return
+
+  const predictedDistance = Math.hypot(
+    particle.x + particle.vx * framesToClosestApproach,
+    particle.y + particle.vy * framesToClosestApproach,
+  )
+  if (predictedDistance >= 1.15) return
+
+  const homeCenter = getHomeCenter(particle)
+  createRipple(homeCenter.x, homeCenter.y, 0.82 + 3 * 0.018)
+  particle.returnRipplePrimed = true
+}
+
 const tick = (time: number) => {
   if (particles.size === 0) {
     animationFrame = null
@@ -279,6 +312,7 @@ const tick = (time: number) => {
           particle.vx = 0
           particle.vy = 0
           particle.returnRipplePending = false
+          particle.returnRipplePrimed = false
           particle.dragVisualActive.value = false
         } else {
           const returnAge = Math.max(0, time - particle.cooldownUntil)
@@ -289,11 +323,14 @@ const tick = (time: number) => {
           particle.vy *= 0.76 ** delta
           particle.x += particle.vx * delta
           particle.y += particle.vy * delta
+          primeReturnRipple(particle)
 
           const distance = Math.hypot(particle.x, particle.y)
           const crossedHome = previousDistance > 0.7 && previousX * particle.x + previousY * particle.y <= 0
           if (distance < 1.15 || crossedHome) {
             const shouldRipple = particle.returnRipplePending
+            const rippleWasPrimed = particle.returnRipplePrimed
+            const homeCenter = shouldRipple ? getHomeCenter(particle) : null
             particle.x = 0
             particle.y = 0
             particle.vx = 0
@@ -301,6 +338,7 @@ const tick = (time: number) => {
             if (shouldRipple) particle.compression = Math.max(particle.compression, 0.14)
             particle.collisionImmuneUntil = time + 520
             particle.returnRipplePending = false
+            particle.returnRipplePrimed = false
             particle.dragVisualActive.value = false
 
             if (shouldRipple) {
@@ -308,8 +346,7 @@ const tick = (time: number) => {
               void particle.element.offsetWidth
               particle.element.classList.add('is-impacting')
               window.setTimeout(() => particle?.element.classList.remove('is-impacting'), 460)
-              const rect = particle.element.getBoundingClientRect()
-              disturbField(particle, rect.left + rect.width / 2, rect.top + rect.height / 2, 3)
+              if (homeCenter) disturbField(particle, homeCenter.x, homeCenter.y, 3, !rippleWasPrimed)
             }
           }
         }
@@ -357,7 +394,13 @@ function createRipple(clientX: number, clientY: number, force = 1) {
   window.setTimeout(() => ripple.remove(), 820)
 }
 
-function disturbField(source: Particle | null, clientX: number, clientY: number, speed: number) {
+function disturbField(
+  source: Particle | null,
+  clientX: number,
+  clientY: number,
+  speed: number,
+  showRipple = true,
+) {
   const strength = 3.4 + clamp(speed * 0.3, 0, 9)
 
   waves.push({
@@ -369,7 +412,7 @@ function disturbField(source: Particle | null, clientX: number, clientY: number,
     touched: new Set<number>(),
   })
 
-  createRipple(clientX, clientY, 0.82 + speed * 0.018)
+  if (showRipple) createRipple(clientX, clientY, 0.82 + speed * 0.018)
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
@@ -407,6 +450,8 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       cooldown: Math.max(0, options.cooldown ?? 720),
       x: 0,
       y: 0,
+      paintedX: 0,
+      paintedY: 0,
       vx: 0,
       vy: 0,
       z: 0,
@@ -417,6 +462,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       dragTargetX: 0,
       dragTargetY: 0,
       returnRipplePending: false,
+      returnRipplePrimed: false,
       collisionImmuneUntil: 0,
       dragVisualActive,
     }
@@ -462,6 +508,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     particle.dragTargetX = particle.x
     particle.dragTargetY = particle.y
     particle.returnRipplePending = false
+    particle.returnRipplePrimed = false
     particle.collisionImmuneUntil = 0
     particle.cooldownUntil = Number.POSITIVE_INFINITY
     dragging.value = true
