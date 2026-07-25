@@ -164,6 +164,25 @@ onBeforeUnmount(() => {
       <span v-if="!showPlacedName" class="identity__name-placeholder" aria-hidden="true">
         {{ props.name }}
       </span>
+
+      <div v-if="showWorkbench" class="identity__workbench" aria-hidden="true">
+        <div class="identity__assembly">
+          <div class="identity__parts">
+            <DragWord ref="partFun" text="fun" :delay="-0.5" class="identity__part identity__part--fun" />
+            <DragWord ref="partRest" text="rest" :delay="-1.3" class="identity__part identity__part--rest" />
+            <DragWord ref="partAn" text="an" :delay="-2.1" class="identity__part identity__part--an" />
+          </div>
+          <Transition name="resolved-name">
+            <DragWord
+              v-if="showResolvedName"
+              ref="resolvedName"
+              :text="props.name"
+              :delay="-1"
+              class="identity__resolved"
+            />
+          </Transition>
+        </div>
+      </div>
     </div>
 
     <p class="identity__accessible-copy">
@@ -193,25 +212,6 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <div v-if="showWorkbench" class="identity__workbench" aria-hidden="true">
-      <span class="identity__guide">extract · join · become</span>
-      <div class="identity__assembly">
-        <div class="identity__parts">
-          <DragWord ref="partFun" text="fun" :delay="-0.5" class="identity__part identity__part--fun" />
-          <DragWord ref="partRest" text="rest" :delay="-1.3" class="identity__part identity__part--rest" />
-          <DragWord ref="partAn" text="an" :delay="-2.1" class="identity__part identity__part--an" />
-        </div>
-        <Transition name="resolved-name">
-          <DragWord
-            v-if="showResolvedName"
-            ref="resolvedName"
-            :text="props.name"
-            :delay="-1"
-            class="identity__resolved"
-          />
-        </Transition>
-      </div>
-    </div>
   </section>
 </template>
 
@@ -295,21 +295,16 @@ onBeforeUnmount(() => {
 }
 
 .identity__workbench {
+  position: absolute;
+  inset: 0;
   display: grid;
-  grid-template-rows: auto 2.7rem;
-  justify-items: center;
-  min-height: 4.2rem;
-  max-height: 4.2rem;
-  margin-top: 0.35rem;
+  place-items: center;
   overflow: visible;
   opacity: 0;
-  transform: translateY(7px);
+  transform: translateY(5px);
   transition:
     opacity 650ms ease,
-    transform 650ms ease,
-    min-height 720ms cubic-bezier(0.22, 1, 0.36, 1),
-    max-height 720ms cubic-bezier(0.22, 1, 0.36, 1),
-    margin-top 720ms cubic-bezier(0.22, 1, 0.36, 1);
+    transform 650ms ease;
   pointer-events: none;
 }
 
@@ -323,30 +318,8 @@ onBeforeUnmount(() => {
 
 [data-phase="done"] .identity__workbench {
   opacity: 0;
-  transform: translateY(-7px) scale(0.96);
-  min-height: 0;
-  max-height: 0;
-  margin-top: 0;
-  overflow: hidden;
+  transform: scale(0.98);
   pointer-events: none;
-}
-
-.identity__guide {
-  margin-bottom: 0.28rem;
-  color: rgb(80 120 150 / 72%);
-  font-size: 0.64rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  transition: opacity 450ms ease;
-}
-
-[data-phase="merge"] .identity__guide {
-  opacity: 0.58;
-}
-
-[data-phase="resolve"] .identity__guide {
-  opacity: 0;
 }
 
 .identity__assembly {
@@ -366,7 +339,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: baseline;
   gap: 0.42rem;
-  font-size: 1.22rem;
+  font-size: 1em;
   font-weight: 760;
   letter-spacing: -0.025em;
   transition:
@@ -416,7 +389,7 @@ onBeforeUnmount(() => {
 
 .identity__resolved {
   color: rgb(17 92 151);
-  font-size: 1.48rem;
+  font-size: 1em;
   font-weight: 780;
   letter-spacing: -0.04em;
   text-shadow: 0 0 18px rgb(74 173 255 / 38%);
@@ -481,11 +454,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-height: 640px) {
-  .identity__workbench {
-    min-height: 3.2rem;
-    margin-top: 0;
-  }
-
   .identity__name {
     margin-bottom: 0.1rem;
   }
