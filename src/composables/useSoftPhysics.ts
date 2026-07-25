@@ -72,8 +72,8 @@ const propagateWaves = (items: Particle[], time: number) => {
     if (!wave) continue
 
     const elapsed = time - wave.startedAt
-    const frontRadius = elapsed * 0.4
-    const maximumRadius = 250
+    const frontRadius = elapsed * 0.48
+    const maximumRadius = 300
 
     for (const particle of items) {
       if (particle.id === wave.sourceId || wave.touched.has(particle.id)) continue
@@ -87,13 +87,12 @@ const propagateWaves = (items: Particle[], time: number) => {
       if (distance > maximumRadius || frontRadius < distance) continue
 
       wave.touched.add(particle.id)
-      const falloff = (1 - distance / maximumRadius) ** 1.35
+      const falloff = (1 - distance / maximumRadius) ** 1.15
       const amplitude = wave.force * falloff * particle.influence / particle.mass
 
-      particle.vz += amplitude * 0.46
-      particle.vx += (dx / distance) * amplitude * 0.075
-      particle.vy += (dy / distance) * amplitude * 0.075
-      particle.compression = Math.max(particle.compression, clamp(amplitude * 0.014, 0, 0.08))
+      particle.vz += amplitude * 1.32
+      particle.vx += (dx / distance) * amplitude * 0.035
+      particle.vy += (dy / distance) * amplitude * 0.035
       particle.cooldownUntil = Math.max(particle.cooldownUntil, time + 230)
     }
 
@@ -152,31 +151,87 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
 
       if (overlapX < overlapY) {
         const direction = dx >= 0 ? 1 : -1
-        const push = Math.min(overlapX * 0.46, 8) * delta
+        const push = Math.min(overlapX * 0.62, 12) * delta
+        const relativeVelocity = (b.vx - a.vx) * direction
+        const bounce = relativeVelocity < 0 ? -relativeVelocity * 0.58 : 0
         if (!a.dragging) {
           a.x -= direction * push * aShare
-          a.vx -= direction * push * 0.18
+          a.vx -= direction * (push * 0.24 + bounce * aShare)
         }
         if (!b.dragging) {
           b.x += direction * push * bShare
-          b.vx += direction * push * 0.18
+          b.vx += direction * (push * 0.24 + bounce * bShare)
         }
       } else {
         const direction = dy >= 0 ? 1 : -1
-        const push = Math.min(overlapY * 0.46, 8) * delta
+        const push = Math.min(overlapY * 0.62, 12) * delta
+        const relativeVelocity = (b.vy - a.vy) * direction
+        const bounce = relativeVelocity < 0 ? -relativeVelocity * 0.58 : 0
         if (!a.dragging) {
           a.y -= direction * push * aShare
-          a.vy -= direction * push * 0.18
+          a.vy -= direction * (push * 0.24 + bounce * aShare)
         }
         if (!b.dragging) {
           b.y += direction * push * bShare
-          b.vy += direction * push * 0.18
+          b.vy += direction * (push * 0.24 + bounce * bShare)
         }
       }
 
       const impact = clamp(Math.min(overlapX, overlapY) * 0.012, 0.025, 0.18)
       a.compression = Math.max(a.compression, impact)
       b.compression = Math.max(b.compression, impact)
+    }
+  }
+}
+
+const resolveViewportBounds = (items: Particle[], time: number) => {
+  const margin = 3
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  for (const particle of items) {
+    const rect = particle.element.getBoundingClientRect()
+    let correctionX = 0
+    let correctionY = 0
+    let horizontalDirection = 0
+    let verticalDirection = 0
+
+    if (rect.left < margin) {
+      correctionX = margin - rect.left
+      horizontalDirection = 1
+    } else if (rect.right > viewportWidth - margin) {
+      correctionX = viewportWidth - margin - rect.right
+      horizontalDirection = -1
+    }
+
+    if (rect.top < margin) {
+      correctionY = margin - rect.top
+      verticalDirection = 1
+    } else if (rect.bottom > viewportHeight - margin) {
+      correctionY = viewportHeight - margin - rect.bottom
+      verticalDirection = -1
+    }
+
+    if (correctionX !== 0) {
+      particle.x += correctionX
+      if (particle.dragging) {
+        particle.vx = 0
+        particle.dragTargetX = particle.x
+      } else if (time < particle.cooldownUntil) {
+        particle.vx = horizontalDirection * Math.abs(particle.vx) * 0.68
+      }
+      particle.compression = Math.max(particle.compression, 0.11)
+    }
+
+    if (correctionY !== 0) {
+      particle.y += correctionY
+      if (particle.dragging) {
+        particle.vy = 0
+        particle.dragTargetY = particle.y
+      } else if (time < particle.cooldownUntil) {
+        particle.vy = verticalDirection * Math.abs(particle.vy) * 0.68
+      }
+      particle.compression = Math.max(particle.compression, 0.11)
     }
   }
 }
@@ -209,34 +264,43 @@ const tick = (time: number) => {
         const previousX = particle.x
         const previousY = particle.y
         const previousDistance = Math.hypot(previousX, previousY)
-        const returnAge = Math.max(0, time - particle.cooldownUntil)
-        const returnBoost = 1 + clamp(returnAge / 900, 0, 1.15)
-        particle.vx += -particle.x * 0.07 * returnBoost * delta
-        particle.vy += -particle.y * 0.07 * returnBoost * delta
-        particle.vx *= 0.76 ** delta
-        particle.vy *= 0.76 ** delta
-        particle.x += particle.vx * delta
-        particle.y += particle.vy * delta
+        const previousSpeed = Math.hypot(particle.vx, particle.vy)
 
-        const distance = Math.hypot(particle.x, particle.y)
-        const crossedHome = previousDistance > 0.7 && previousX * particle.x + previousY * particle.y <= 0
-        if (distance < 1.15 || crossedHome) {
-          const shouldRipple = particle.returnRipplePending
+        if (previousDistance < 0.08 && previousSpeed < 0.04) {
           particle.x = 0
           particle.y = 0
           particle.vx = 0
           particle.vy = 0
-          particle.compression = Math.max(particle.compression, shouldRipple ? 0.14 : 0.055)
-          particle.collisionImmuneUntil = time + 520
-          particle.returnRipplePending = false
+        } else {
+          const returnAge = Math.max(0, time - particle.cooldownUntil)
+          const returnBoost = 1 + clamp(returnAge / 900, 0, 1.15)
+          particle.vx += -particle.x * 0.07 * returnBoost * delta
+          particle.vy += -particle.y * 0.07 * returnBoost * delta
+          particle.vx *= 0.76 ** delta
+          particle.vy *= 0.76 ** delta
+          particle.x += particle.vx * delta
+          particle.y += particle.vy * delta
 
-          if (shouldRipple) {
-            particle.element.classList.remove('is-impacting')
-            void particle.element.offsetWidth
-            particle.element.classList.add('is-impacting')
-            window.setTimeout(() => particle?.element.classList.remove('is-impacting'), 460)
-            const rect = particle.element.getBoundingClientRect()
-            disturbField(particle, rect.left + rect.width / 2, rect.top + rect.height / 2, 3)
+          const distance = Math.hypot(particle.x, particle.y)
+          const crossedHome = previousDistance > 0.7 && previousX * particle.x + previousY * particle.y <= 0
+          if (distance < 1.15 || crossedHome) {
+            const shouldRipple = particle.returnRipplePending
+            particle.x = 0
+            particle.y = 0
+            particle.vx = 0
+            particle.vy = 0
+            if (shouldRipple) particle.compression = Math.max(particle.compression, 0.14)
+            particle.collisionImmuneUntil = time + 520
+            particle.returnRipplePending = false
+
+            if (shouldRipple) {
+              particle.element.classList.remove('is-impacting')
+              void particle.element.offsetWidth
+              particle.element.classList.add('is-impacting')
+              window.setTimeout(() => particle?.element.classList.remove('is-impacting'), 460)
+              const rect = particle.element.getBoundingClientRect()
+              disturbField(particle, rect.left + rect.width / 2, rect.top + rect.height / 2, 3)
+            }
           }
         }
       } else {
@@ -247,8 +311,8 @@ const tick = (time: number) => {
       }
     }
 
-    particle.vz += -particle.z * 0.13 * delta
-    particle.vz *= 0.78 ** delta
+    particle.vz += -particle.z * 0.085 * delta
+    particle.vz *= 0.86 ** delta
     particle.z += particle.vz * delta
     if (Math.abs(particle.z) < 0.015 && Math.abs(particle.vz) < 0.012) {
       particle.z = 0
@@ -259,6 +323,7 @@ const tick = (time: number) => {
   }
 
   resolveCollisions(items, delta, time)
+  resolveViewportBounds(items, time)
 
   items.forEach(paintParticle)
   animationFrame = window.requestAnimationFrame(tick)
@@ -283,7 +348,7 @@ function createRipple(clientX: number, clientY: number, force = 1) {
 }
 
 function disturbField(source: Particle | null, clientX: number, clientY: number, speed: number) {
-  const strength = 2.2 + clamp(speed * 0.22, 0, 7)
+  const strength = 3.4 + clamp(speed * 0.3, 0, 9)
 
   waves.push({
     x: clientX,

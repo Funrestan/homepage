@@ -32,6 +32,26 @@ body {
     z-index: 50;
 }
 
+.soft-physics-item::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+    border: 1px solid rgb(109 200 255 / 0%);
+    border-radius: 999px;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 0 0 rgb(86 184 255 / 0%);
+    transition: opacity 120ms ease, border-color 120ms ease, box-shadow 160ms ease;
+}
+
+.soft-physics-item.is-dragging::after {
+    border-color: rgb(109 200 255 / 58%);
+    opacity: 1;
+    box-shadow:
+        0 0 10px rgb(86 184 255 / 34%),
+        inset 0 0 7px rgb(158 222 255 / 14%);
+}
+
 .soft-physics-item.is-dragging > * {
     animation: soft-pickup 280ms cubic-bezier(0.2, 0.9, 0.3, 1) !important;
 }
