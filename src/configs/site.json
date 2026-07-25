@@ -1,0 +1,31 @@
+{
+    "background-img": "/background.jpg",
+    "darkmode-background-img": "/background-dark.jpg",
+    "title": "Funrestan's Homepage",
+    "showBackgroundInfo": true,
+    "hitokoto": {
+        "enable": true,
+        "url": "https://international.v1.hitokoto.cn"
+    },
+    "backgroundInfo": [
+        {
+            "author": "紺屋",
+            "authorUrl": "https://www.pixiv.net/users/10109777",
+            "imgSource": "https://www.pixiv.net/artworks/121764304",
+            "name": "ガード下のメニュー"
+        },
+        {
+            "author": "半节",
+            "authorUrl": "https://www.pixiv.net/users/6179964",
+            "imgSource": "https://www.pixiv.net/artworks/143520010",
+            "name": "昔人已乘黄鹤去，此地空余黄鹤楼，秦心接力二宣图"
+        }
+    ],
+    "right": "2026 Funrestan. All rights reserved.",
+    "icp": [
+        {
+            "name": "萌ICP备20262224号",
+            "url": "https://icp.gov.moe/?keyword=20262224"
+        }
+    ]
+}

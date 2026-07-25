@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+body {
+    @apply bg-cover bg-center bg-fixed;
+    background-image: var(--default-background);
+}
+@media (prefers-color-scheme: dark) {
+    body {
+        background-image: var(--dark-background);
+    }
+}
