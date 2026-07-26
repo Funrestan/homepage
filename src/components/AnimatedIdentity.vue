@@ -6,12 +6,19 @@ type Phase = 'intro' | 'extract' | 'merge' | 'resolve' | 'done'
 
 const props = withDefaults(defineProps<{
   name?: string
+  startDelay?: number
 }>(), {
   name: 'Funrestan',
+  startDelay: 2600,
 })
+
+const emit = defineEmits<{
+  complete: []
+}>()
 
 const phase = ref<Phase>('intro')
 const showWorkbench = ref(true)
+const identityRoot = ref<HTMLElement | null>(null)
 const timers: number[] = []
 const copyAnimations: Animation[] = []
 
@@ -32,6 +39,17 @@ const sentenceName = ref<DragWordHandle | null>(null)
 
 const showResolvedName = computed(() => phase.value === 'resolve')
 const showPlacedName = computed(() => phase.value === 'done')
+let completionEmitted = false
+
+const emitComplete = () => {
+  if (completionEmitted) return
+  completionEmitted = true
+  emit('complete')
+}
+
+defineExpose({
+  getElement: () => identityRoot.value,
+})
 
 const schedulePhase = (nextPhase: Phase, delay: number) => {
   timers.push(window.setTimeout(() => {
@@ -67,7 +85,7 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
       filter: 'blur(0)',
     },
   ], {
-    duration: 1120,
+    duration: 760,
     delay,
     easing: 'cubic-bezier(0.16, 0.82, 0.22, 1)',
     fill: 'backwards',
@@ -80,8 +98,8 @@ const beginExtraction = async () => {
   phase.value = 'extract'
   await nextTick()
   animateCopy(sourceFun.value, partFun.value, 0)
-  animateCopy(sourceRest.value, partRest.value, 120)
-  animateCopy(sourceAn.value, partAn.value, 240)
+  animateCopy(sourceRest.value, partRest.value, 65)
+  animateCopy(sourceAn.value, partAn.value, 130)
 }
 
 const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, delay: number) => {
@@ -108,7 +126,7 @@ const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, de
       opacity: 1,
     },
   ], {
-    duration: 1120,
+    duration: 720,
     delay,
     easing: 'cubic-bezier(0.18, 0.88, 0.25, 1)',
     fill: 'backwards',
@@ -129,20 +147,22 @@ const finishAnimation = async () => {
 
   timers.push(window.setTimeout(() => {
     showWorkbench.value = false
-  }, 1200))
+    emitComplete()
+  }, 780))
 }
 
 onMounted(() => {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     phase.value = 'done'
     showWorkbench.value = false
+    timers.push(window.setTimeout(emitComplete, 0))
     return
   }
 
-  timers.push(window.setTimeout(beginExtraction, 1500))
-  schedulePhase('merge', 3500)
-  schedulePhase('resolve', 5100)
-  timers.push(window.setTimeout(finishAnimation, 6500))
+  timers.push(window.setTimeout(beginExtraction, props.startDelay))
+  schedulePhase('merge', props.startDelay + 780)
+  schedulePhase('resolve', props.startDelay + 1340)
+  timers.push(window.setTimeout(finishAnimation, props.startDelay + 1860))
 })
 
 onBeforeUnmount(() => {
@@ -152,7 +172,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="identity" :data-phase="phase">
+  <section ref="identityRoot" class="identity" :data-phase="phase">
     <div class="identity__name" aria-live="polite">
       <DragWord
         v-if="showPlacedName"
@@ -272,9 +292,9 @@ onBeforeUnmount(() => {
   color: var(--identity-ink);
   font-weight: 700;
   transition:
-    color 650ms ease,
-    filter 650ms ease,
-    opacity 650ms ease;
+    color 420ms ease,
+    filter 420ms ease,
+    opacity 420ms ease;
 }
 
 [data-phase="extract"] .identity__source,
@@ -303,8 +323,8 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(5px);
   transition:
-    opacity 650ms ease,
-    transform 650ms ease;
+    opacity 420ms ease,
+    transform 420ms ease;
   pointer-events: none;
 }
 
@@ -343,9 +363,9 @@ onBeforeUnmount(() => {
   font-weight: 760;
   letter-spacing: -0.025em;
   transition:
-    gap 850ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 480ms ease,
-    filter 480ms ease;
+    gap 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 320ms ease,
+    filter 320ms ease;
 }
 
 .identity__part {
@@ -360,9 +380,9 @@ onBeforeUnmount(() => {
   background: rgb(231 246 255 / 50%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
   transition:
-    padding 850ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 650ms ease,
-    background-color 650ms ease;
+    padding 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 420ms ease,
+    background-color 420ms ease;
 }
 
 [data-phase="merge"] .identity__parts,
@@ -397,9 +417,9 @@ onBeforeUnmount(() => {
 
 .resolved-name-enter-active {
   transition:
-    opacity 780ms ease,
-    transform 950ms cubic-bezier(0.18, 1.3, 0.32, 1),
-    filter 700ms ease;
+    opacity 420ms ease,
+    transform 520ms cubic-bezier(0.18, 1.3, 0.32, 1),
+    filter 420ms ease;
 }
 
 .resolved-name-enter-from {

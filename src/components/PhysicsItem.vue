@@ -26,6 +26,10 @@ const {
   influence: props.influence,
   cooldown: props.cooldown,
 })
+
+defineExpose({
+  getElement: () => elementRef.value,
+})
 </script>
 
 <template>
