@@ -1,5 +1,5 @@
 <template>
-    <div class="bg-white/50 border-white/50
+    <div class="background-info bg-white/50 border-white/50
                 dark:bg-black/60 dark:border-gray-700/50
                 backdrop-blur-2xl border p-2
                 text-black/85 dark:text-gray-300
@@ -34,3 +34,10 @@ const prop = defineProps<{
   darkMod: boolean;
 }>();
 </script>
+
+<style scoped>
+.background-info {
+  transition-duration: var(--theme-transition-duration);
+  transition-timing-function: var(--theme-transition-easing);
+}
+</style>

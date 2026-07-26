@@ -48,11 +48,30 @@ type PhysicsWave = {
 const particles = new Map<number, Particle>()
 const waves: PhysicsWave[] = []
 
+export const SOFT_PHYSICS_TIMER_START_EVENT = 'soft-physics:return-timer-start'
+export const SOFT_PHYSICS_TIMER_COMPLETE_EVENT = 'soft-physics:return-timer-complete'
+
 let nextId = 1
 let animationFrame: number | null = null
 let previousFrame = 0
 let lastRipple = 0
 let globalPointerListenerActive = false
+let returnTimingActive = false
+
+const dispatchReturnTimerEvent = (name: string, timestamp: number) => {
+  window.dispatchEvent(new CustomEvent(name, { detail: { timestamp } }))
+}
+
+const beginReturnTiming = (timestamp = performance.now()) => {
+  returnTimingActive = true
+  dispatchReturnTimerEvent(SOFT_PHYSICS_TIMER_START_EVENT, timestamp)
+}
+
+const finishReturnTiming = (timestamp: number) => {
+  if (!returnTimingActive) return
+  returnTimingActive = false
+  dispatchReturnTimerEvent(SOFT_PHYSICS_TIMER_COMPLETE_EVENT, timestamp)
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
@@ -500,6 +519,16 @@ const tick = (time: number) => {
   resolveViewportBounds(items, time)
 
   items.forEach(paintParticle)
+
+  if (returnTimingActive && waves.length === 0) {
+    const allParticlesSettled = items.every((particle) => (
+      !particle.dragging
+      && Math.hypot(particle.x, particle.y) <= PhysicsConfig.return.idleDistance
+      && Math.hypot(particle.vx, particle.vy) <= PhysicsConfig.return.idleSpeed
+    ))
+    if (allParticlesSettled) finishReturnTiming(time)
+  }
+
   animationFrame = window.requestAnimationFrame(tick)
 }
 
@@ -556,8 +585,17 @@ function disturbField(
   }
 }
 
+export const triggerSoftPhysicsRipple = (
+  clientX: number,
+  clientY: number,
+  speed = PhysicsConfig.wave.returnSpeed,
+) => {
+  disturbField(null, clientX, clientY, speed)
+}
+
 function handleGlobalPointerDown(event: PointerEvent) {
   if (event.pointerType === 'mouse' && event.button !== 0) return
+  if (returnTimingActive) beginReturnTiming(performance.now())
   const target = event.target as HTMLElement | null
   if (target?.closest('.soft-physics-item')) return
   disturbField(null, event.clientX, event.clientY, PhysicsConfig.wave.idleClickSpeed)
@@ -759,6 +797,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     particle.vx *= PhysicsConfig.drag.releaseVelocityRetention
     particle.vy *= PhysicsConfig.drag.releaseVelocityRetention
     dragging.value = false
+    if (moved) beginReturnTiming(performance.now())
   }
 
   const clickCapture = (event: MouseEvent) => {

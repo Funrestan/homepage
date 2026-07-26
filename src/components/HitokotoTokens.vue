@@ -330,7 +330,9 @@ defineExpose({ beginRefresh, cancelRefresh })
 .hitokoto-token-lines {
   width: 100%;
   color: rgb(75 85 99);
-  transition: opacity var(--hitokoto-visibility-transition) ease;
+  transition:
+    opacity var(--hitokoto-visibility-transition) ease,
+    color var(--theme-transition-duration) var(--theme-transition-easing);
 }
 
 .hitokoto-token-lines.is-hidden {
@@ -363,9 +365,7 @@ defineExpose({ beginRefresh, cancelRefresh })
   margin-left: var(--hitokoto-token-spacing);
 }
 
-@media (prefers-color-scheme: dark) {
-  .hitokoto-token-lines {
-    color: rgb(209 213 219);
-  }
+:global(html.dark .hitokoto-token-lines) {
+  color: rgb(209 213 219);
 }
 </style>

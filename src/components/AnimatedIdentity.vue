@@ -303,6 +303,7 @@ onBeforeUnmount(() => {
   font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Rounded", "Nunito", system-ui, sans-serif;
   color: var(--identity-ink);
   text-align: center;
+  transition: color var(--theme-transition-duration) var(--theme-transition-easing);
 }
 
 .identity__name {
@@ -323,6 +324,7 @@ onBeforeUnmount(() => {
 
 .identity__name-word {
   color: var(--identity-ink);
+  transition: color var(--theme-transition-duration) var(--theme-transition-easing);
 }
 
 .identity__name-placeholder {
@@ -340,6 +342,7 @@ onBeforeUnmount(() => {
   font-size: clamp(0.9rem, 1.5vw, 1.08rem);
   line-height: 1.85;
   text-wrap: balance;
+  transition: color var(--theme-transition-duration) var(--theme-transition-easing);
 }
 
 .identity__punctuation {
@@ -501,31 +504,28 @@ onBeforeUnmount(() => {
   border: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  .identity {
-    --identity-ink: rgb(229 231 235);
-    --identity-muted: rgb(209 213 219);
-  }
+:global(html.dark .identity) {
+  --identity-ink: rgb(229 231 235);
+  --identity-muted: rgb(209 213 219);
+}
 
-  [data-phase="illuminate"] .identity__source,
-  [data-phase="extract"] .identity__source {
-    color: rgb(132 204 255);
-  }
+:global(html.dark [data-phase="illuminate"] .identity__source),
+:global(html.dark [data-phase="extract"] .identity__source) {
+  color: rgb(132 204 255);
+}
 
-  .identity__part :deep(.drag-word__visual) {
-    background: transparent;
-    box-shadow: none;
-  }
+:global(html.dark .identity__part .drag-word__visual) {
+  background: transparent;
+  box-shadow: none;
+}
 
+:global(html.dark .identity__part) {
+  color: rgb(167 218 255);
+}
 
-  .identity__part {
-    color: rgb(167 218 255);
-  }
-
-  [data-phase="merge"] .identity__part,
-  .identity__resolved {
-    color: rgb(156 215 255);
-  }
+:global(html.dark [data-phase="merge"] .identity__part),
+:global(html.dark .identity__resolved) {
+  color: rgb(156 215 255);
 }
 
 @media (max-height: 640px) {

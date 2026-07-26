@@ -1,12 +1,43 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 body {
     @apply bg-cover bg-center bg-fixed;
-    background-image: var(--default-background);
+    position: relative;
+    isolation: isolate;
+    background: rgb(241 245 249);
     overflow: hidden;
+    transition: background-color var(--theme-transition-duration, 520ms)
+        var(--theme-transition-easing, ease);
+}
+
+body::before,
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-position: center;
+    background-size: cover;
+    background-attachment: fixed;
+    pointer-events: none;
+    transition: opacity var(--theme-background-fade-duration, 850ms)
+        var(--theme-transition-easing, ease);
+}
+
+body::before {
+    background-image: var(--default-background);
+    opacity: 1;
+}
+
+body::after {
+    background-image: var(--dark-background);
+    opacity: 0;
 }
 
 #app {
+    position: relative;
+    z-index: 0;
     min-height: 100dvh;
     perspective: var(--physics-perspective, 1100px);
 }
@@ -112,8 +143,14 @@ body {
     100% { transform: scale(1); }
 }
 
-@media (prefers-color-scheme: dark) {
-    body {
-        background-image: var(--dark-background);
-    }
+html.dark body {
+    background-color: rgb(8 15 28);
+}
+
+html.dark body::before {
+    opacity: 0;
+}
+
+html.dark body::after {
+    opacity: 1;
 }

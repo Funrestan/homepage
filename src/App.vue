@@ -2,14 +2,16 @@
 import SiteConfig from './configs/site.json';
 import AuthorInfo from './configs/author.json';
 import PhysicsConfig from './configs/physics.json';
+import UiConfig from './configs/ui.json';
 
 import { Icon } from '@iconify/vue'
 import AnimatedIdentity from './components/AnimatedIdentity.vue';
 import BackgroundInfo from './components/BackgroundInfo.vue';
 import HitokotoTokens from './components/HitokotoTokens.vue';
 import PhysicsItem from './components/PhysicsItem.vue';
+import ReturnTimer from './components/ReturnTimer.vue';
 import AnimationConfig from './configs/animation.json';
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 // set background
 var defaultBackground = `url(${SiteConfig['background-img']})`;
 var darkBackground = `url(${SiteConfig['darkmode-background-img']})`;
@@ -40,10 +42,30 @@ const identityItem = ref<ElementHandle | null>(null);
 const hitokotoItem = ref<HitokotoHandle | null>(null);
 let refreshTimer: number | null = null;
 let hitokotoRefreshing = false;
-const setCurrentTheme = () => {
-  const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  usingDarkBackground.value = isDarkMode && darkBackground.length > 5; // url() is 5 characters
+let themeOverride: boolean | null = null;
+
+const applyTheme = (isDark: boolean) => {
+  usingDarkBackground.value = isDark;
+  document.documentElement.classList.toggle('dark', isDark);
+  document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
 }
+
+const setCurrentTheme = () => {
+  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(themeOverride ?? systemPrefersDark);
+}
+
+const toggleTheme = () => {
+  themeOverride = !usingDarkBackground.value;
+  applyTheme(themeOverride);
+}
+
+const themeToggleLabel = computed(() => usingDarkBackground.value
+  ? UiConfig.themeToggle.switchToLightLabel
+  : UiConfig.themeToggle.switchToDarkLabel)
+const themeToggleTooltip = computed(() => usingDarkBackground.value
+  ? UiConfig.themeToggle.lightTooltip
+  : UiConfig.themeToggle.darkTooltip)
 
 const fetchHitokoto = async () => {
   try {
@@ -285,9 +307,14 @@ document.documentElement.style.setProperty('--hitokoto-shell-start-offset-y', `$
 document.documentElement.style.setProperty('--hitokoto-shell-start-scale', String(AnimationConfig.hitokoto.shellStartScale));
 document.documentElement.style.setProperty('--hitokoto-shell-maximum-height', AnimationConfig.hitokoto.shellMaximumHeight);
 document.documentElement.style.setProperty('--hitokoto-shell-visible-margin-top', AnimationConfig.hitokoto.shellVisibleMarginTop);
+document.documentElement.style.setProperty('--theme-transition-duration', `${UiConfig.themeToggle.transitionDuration}ms`);
+document.documentElement.style.setProperty('--theme-background-fade-duration', `${UiConfig.themeToggle.backgroundFadeDuration}ms`);
+document.documentElement.style.setProperty('--theme-transition-easing', UiConfig.themeToggle.transitionEasing);
 
 let colorSchemeQuery: MediaQueryList | null = null;
-const handleColorSchemeChange = () => setCurrentTheme();
+const handleColorSchemeChange = () => {
+  if (themeOverride === null) setCurrentTheme();
+};
 
 onMounted(() => {
   colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -320,6 +347,7 @@ onBeforeUnmount(() => {
         shape="round"
         class="profile-avatar-shell"
       >
+        <ReturnTimer v-if="UiConfig.returnTimer.enable" />
         <img :src="AuthorInfo.avatar" alt="avatar" draggable="false"
           class="profile-avatar h-40 w-40 rounded-full shadow-xl">
       </PhysicsItem>
@@ -371,6 +399,43 @@ onBeforeUnmount(() => {
               </div>
           </a>
         </PhysicsItem>
+        <PhysicsItem
+          v-if="UiConfig.themeToggle.enable"
+          :mass="PhysicsConfig.presets.link.mass"
+          :influence="PhysicsConfig.presets.link.influence"
+          :cooldown="PhysicsConfig.presets.link.cooldown"
+          :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
+          shape="compact"
+          class="profile-link-body"
+        >
+          <button
+            type="button"
+            class="profile-link theme-toggle text-gray-700 hover:text-gray-900
+                  dark:text-gray-300 dark:hover:text-white
+                  transition-all duration-300 group relative
+                  flex-col flex items-center justify-center"
+            :aria-label="themeToggleLabel"
+            :aria-pressed="usingDarkBackground"
+            :title="themeToggleLabel"
+            @click.stop="toggleTheme"
+            @dragstart.prevent
+          >
+            <span class="theme-toggle__icons" aria-hidden="true">
+              <Icon
+                :icon="UiConfig.themeToggle.darkIcon"
+                class="icon-color theme-toggle__icon theme-toggle__icon--dark"
+              />
+              <Icon
+                :icon="UiConfig.themeToggle.lightIcon"
+                class="icon-color theme-toggle__icon theme-toggle__icon--light"
+              />
+            </span>
+            <div class="h-full text-sm absolute pt-10 opacity-0 transition-all duration-200
+                        group-hover:opacity-100">
+              {{ themeToggleTooltip }}
+            </div>
+          </button>
+        </PhysicsItem>
       </div>
       <!-- </div> -->
     </div>
@@ -394,7 +459,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .icon-color {
   color: var(--icon-default, currentColor);
-  transition: color 200ms ease;
+  transition: color var(--theme-transition-duration) var(--theme-transition-easing);
 }
 
 .group:hover .icon-color {
@@ -405,6 +470,12 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   margin-bottom: 1rem;
   border-radius: 999px;
+}
+
+.profile-panel,
+.profile-footer {
+  transition-duration: var(--theme-transition-duration);
+  transition-timing-function: var(--theme-transition-easing);
 }
 
 .hitokoto-shell {
@@ -452,11 +523,50 @@ onBeforeUnmount(() => {
 }
 
 .profile-link {
-  transition: color 200ms ease, transform 260ms cubic-bezier(0.2, 1.3, 0.35, 1);
+  transition:
+    color var(--theme-transition-duration) var(--theme-transition-easing),
+    transform 260ms cubic-bezier(0.2, 1.3, 0.35, 1);
 }
 
 .profile-link:hover {
   transform: translateY(-2px) scale(1.08);
+}
+
+.theme-toggle__icons {
+  position: relative;
+  display: inline-grid;
+  width: 1em;
+  height: 1em;
+  place-items: center;
+}
+
+.theme-toggle__icon {
+  position: absolute;
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--theme-transition-duration) var(--theme-transition-easing),
+    transform var(--theme-transition-duration) var(--theme-transition-easing),
+    color var(--theme-transition-duration) var(--theme-transition-easing);
+}
+
+.theme-toggle__icon--dark {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.theme-toggle__icon--light {
+  opacity: 0;
+  transform: rotate(-95deg) scale(0.62);
+}
+
+:global(html.dark .theme-toggle__icon--dark) {
+  opacity: 0;
+  transform: rotate(95deg) scale(0.62);
+}
+
+:global(html.dark .theme-toggle__icon--light) {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
 }
 
 @media (max-height: 560px) {

@@ -1,0 +1,26 @@
+{
+  "themeToggle": {
+    "enable": true,
+    "lightIcon": "mingcute:sun-line",
+    "darkIcon": "mingcute:moon-line",
+    "switchToLightLabel": "切换到亮色模式",
+    "switchToDarkLabel": "切换到暗色模式",
+    "lightTooltip": "Light",
+    "darkTooltip": "Dark",
+    "transitionDuration": 520,
+    "backgroundFadeDuration": 850,
+    "transitionEasing": "cubic-bezier(0.22, 0.72, 0.22, 1)"
+  },
+  "returnTimer": {
+    "enable": true,
+    "runningLabel": "归位中",
+    "completeLabel": "归位用时",
+    "unit": "s",
+    "precision": 3,
+    "displayDuration": 2000,
+    "fadeDuration": 240,
+    "completionRippleSpeed": 3,
+    "offsetTop": "-2.15rem",
+    "minimumWidth": "9.5rem"
+  }
+}
