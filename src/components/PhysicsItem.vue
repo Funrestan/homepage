@@ -1,15 +1,18 @@
 <script setup lang="ts">
+import PhysicsConfig from '../configs/physics.json'
 import { useSoftPhysics } from '../composables/useSoftPhysics'
 
 const props = withDefaults(defineProps<{
   mass?: number
   influence?: number
   cooldown?: number
+  settleCollisionCooldown?: number
   shape?: 'round' | 'compact' | 'soft'
 }>(), {
-  mass: 1.4,
-  influence: 1,
-  cooldown: 820,
+  mass: PhysicsConfig.presets.container.mass,
+  influence: PhysicsConfig.presets.container.influence,
+  cooldown: PhysicsConfig.presets.container.cooldown,
+  settleCollisionCooldown: PhysicsConfig.presets.container.settleCollisionCooldown,
   shape: 'soft',
 })
 
@@ -25,6 +28,7 @@ const {
   mass: props.mass,
   influence: props.influence,
   cooldown: props.cooldown,
+  settleCollisionCooldown: props.settleCollisionCooldown,
 })
 
 defineExpose({

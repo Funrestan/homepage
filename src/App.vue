@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import SiteConfig from './configs/site.json';
 import AuthorInfo from './configs/author.json';
+import PhysicsConfig from './configs/physics.json';
 
 import { Icon } from '@iconify/vue'
 import AnimatedIdentity from './components/AnimatedIdentity.vue';
@@ -136,9 +137,9 @@ const runEntranceAnimation = async () => {
     {
       offset: 0,
       opacity: 0,
-      filter: 'blur(20px)',
-      transform: avatarTransform(0, 0.82),
-      easing: 'cubic-bezier(0.2, 0.82, 0.22, 1)',
+      filter: `blur(${entrance.avatarInitialBlur}px)`,
+      transform: avatarTransform(0, entrance.avatarInitialScale),
+      easing: entrance.avatarInitialEasing,
     },
     {
       offset: avatarOffsetAt(entrance.avatarFadeEnd),
@@ -148,7 +149,7 @@ const runEntranceAnimation = async () => {
       easing: 'linear',
     },
     {
-      offset: avatarOffsetAt(dealStart - 12),
+      offset: avatarOffsetAt(dealStart - entrance.avatarDealHoldLead),
       opacity: 1,
       filter: 'blur(0)',
       transform: avatarTransform(0),
@@ -165,14 +166,14 @@ const runEntranceAnimation = async () => {
         offset: avatarOffsetAt(dealTime),
         opacity: 1,
         filter: 'blur(0)',
-        transform: avatarTransform(previousProgress, 1.014),
-        easing: 'cubic-bezier(0.18, 0.86, 0.22, 1)',
+        transform: avatarTransform(previousProgress, entrance.avatarStepScaleUp),
+        easing: entrance.avatarStepEasing,
       },
       {
-        offset: avatarOffsetAt(dealTime + 34),
+        offset: avatarOffsetAt(dealTime + entrance.avatarStepDuration),
         opacity: 1,
         filter: 'blur(0)',
-        transform: avatarTransform(nextProgress, 0.992),
+        transform: avatarTransform(nextProgress, entrance.avatarStepScaleDown),
         easing: 'ease-out',
       },
     );
@@ -184,20 +185,28 @@ const runEntranceAnimation = async () => {
       opacity: 1,
       filter: 'blur(0)',
       transform: avatarTransform(steppedTravel),
-      easing: 'cubic-bezier(0.16, 0.88, 0.2, 1)',
+      easing: entrance.avatarFinalEasing,
     },
     { offset: 1, opacity: 1, filter: 'blur(0)', transform: avatarTransform(1) },
   );
 
   registerEntrance(panel.animate(fullWidthPanel ? [
-    { opacity: 0, filter: 'blur(18px)', transform: 'scale(1.025)' },
+    {
+      opacity: 0,
+      filter: `blur(${entrance.panelFullscreenBlur}px)`,
+      transform: `scale(${entrance.panelFullscreenScale})`,
+    },
     { opacity: 1, filter: 'blur(0)', transform: 'scale(1)' },
   ] : [
-    { opacity: 0.18, filter: 'blur(16px)', transform: 'translate3d(-104%, 0, 0)' },
+    {
+      opacity: entrance.panelDesktopOpacity,
+      filter: `blur(${entrance.panelDesktopBlur}px)`,
+      transform: `translate3d(${entrance.panelDesktopOffsetPercent}%, 0, 0)`,
+    },
     { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0)' },
   ], {
     duration: fullWidthPanel ? entrance.panelFullscreenDuration : entrance.panelDesktopDuration,
-    easing: 'cubic-bezier(0.18, 0.82, 0.22, 1)',
+    easing: entrance.panelEasing,
     fill: 'backwards',
   }));
 
@@ -218,37 +227,41 @@ const runEntranceAnimation = async () => {
     registerEntrance(element.animate([
       {
         opacity: 0,
-        filter: `blur(${kind === 'bio' ? 8 : 6}px)`,
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 7}deg) scale(${kind === 'bio' ? 0.56 : 0.48})`,
+        filter: `blur(${kind === 'bio' ? entrance.dealBioBlur : entrance.dealLinkBlur}px)`,
+        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * entrance.dealRotation}deg) scale(${kind === 'bio' ? entrance.dealBioScale : entrance.dealLinkScale})`,
       },
       {
-        offset: 0.2,
+        offset: entrance.dealRevealOffset,
         opacity: 1,
         filter: 'blur(0)',
       },
       {
-        offset: 0.74,
+        offset: entrance.dealTailOffset,
         opacity: 1,
         filter: 'blur(0)',
-        transform: `translate3d(${offsetX * 0.14}px, ${offsetY * 0.14 - 7}px, 0) rotate(${direction * -1.4}deg) scale(1.025)`,
+        transform: `translate3d(${offsetX * entrance.dealTailDistanceRatio}px, ${offsetY * entrance.dealTailDistanceRatio - entrance.dealTailLift}px, 0) rotate(${direction * -entrance.dealTailRotation}deg) scale(${entrance.dealTailScale})`,
       },
       { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) rotate(0) scale(1)' },
     ], {
       duration: entrance.dealDuration,
       delay: dealStart + index * dealCadence,
-      easing: 'cubic-bezier(0.17, 0.86, 0.2, 1)',
+      easing: entrance.dealEasing,
       fill: 'backwards',
     }));
   });
 
   if (profileFooter.value) {
     registerEntrance(profileFooter.value.animate([
-      { opacity: 0, filter: 'blur(7px)', transform: 'translateY(12px)' },
+      {
+        opacity: 0,
+        filter: `blur(${entrance.footerBlur}px)`,
+        transform: `translateY(${entrance.footerOffsetY}px)`,
+      },
       { opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' },
     ], {
-      duration: 620,
-      delay: dealStart + dealTargets.length * dealCadence - 180,
-      easing: 'ease-out',
+      duration: entrance.footerDuration,
+      delay: dealStart + dealTargets.length * dealCadence - entrance.footerLead,
+      easing: entrance.footerEasing,
       fill: 'backwards',
     }));
   }
@@ -257,6 +270,21 @@ const runEntranceAnimation = async () => {
 setCurrentTheme();
 document.documentElement.style.setProperty('--default-background', defaultBackground);
 document.documentElement.style.setProperty('--dark-background', darkBackground);
+document.documentElement.style.setProperty('--physics-perspective', PhysicsConfig.visual.perspective);
+document.documentElement.style.setProperty('--physics-active-layer', String(PhysicsConfig.visual.activeLayer));
+document.documentElement.style.setProperty('--physics-outline-inset', PhysicsConfig.visual.outlineInset);
+document.documentElement.style.setProperty('--physics-ripple-size', PhysicsConfig.visual.rippleSize);
+document.documentElement.style.setProperty('--physics-ripple-duration', PhysicsConfig.visual.rippleDuration);
+document.documentElement.style.setProperty('--physics-ripple-end-scale', String(PhysicsConfig.visual.rippleEndScale));
+document.documentElement.style.setProperty('--physics-impact-duration', PhysicsConfig.visual.impactDuration);
+document.documentElement.style.setProperty('--physics-pickup-duration', PhysicsConfig.visual.pickupDuration);
+document.documentElement.style.setProperty('--hitokoto-shell-fade-duration', `${AnimationConfig.hitokoto.shellFadeDuration}ms`);
+document.documentElement.style.setProperty('--hitokoto-shell-move-duration', `${AnimationConfig.hitokoto.shellMoveDuration}ms`);
+document.documentElement.style.setProperty('--hitokoto-shell-start-blur', `${AnimationConfig.hitokoto.shellStartBlur}px`);
+document.documentElement.style.setProperty('--hitokoto-shell-start-offset-y', `${AnimationConfig.hitokoto.shellStartOffsetY}px`);
+document.documentElement.style.setProperty('--hitokoto-shell-start-scale', String(AnimationConfig.hitokoto.shellStartScale));
+document.documentElement.style.setProperty('--hitokoto-shell-maximum-height', AnimationConfig.hitokoto.shellMaximumHeight);
+document.documentElement.style.setProperty('--hitokoto-shell-visible-margin-top', AnimationConfig.hitokoto.shellVisibleMarginTop);
 
 let colorSchemeQuery: MediaQueryList | null = null;
 const handleColorSchemeChange = () => setCurrentTheme();
@@ -283,7 +311,15 @@ onBeforeUnmount(() => {
                 backdrop-blur-2xl border-r transition-all duration-300
                 shadow-[10px_0px_30px_rgba(0,0,0,0.25)] p-10
                 flex flex-col items-center justify-center">
-      <PhysicsItem ref="avatarItem" :mass="2.7" :influence="0.72" :cooldown="1100" shape="round" class="profile-avatar-shell">
+      <PhysicsItem
+        ref="avatarItem"
+        :mass="PhysicsConfig.presets.avatar.mass"
+        :influence="PhysicsConfig.presets.avatar.influence"
+        :cooldown="PhysicsConfig.presets.avatar.cooldown"
+        :settle-collision-cooldown="PhysicsConfig.presets.avatar.settleCollisionCooldown"
+        shape="round"
+        class="profile-avatar-shell"
+      >
         <img :src="AuthorInfo.avatar" alt="avatar" draggable="false"
           class="profile-avatar h-40 w-40 rounded-full shadow-xl">
       </PhysicsItem>
@@ -312,9 +348,10 @@ onBeforeUnmount(() => {
         <PhysicsItem
           v-for="value in AuthorInfo.links"
           :key="value.name"
-          :mass="1.05"
-          :influence="1.16"
-          :cooldown="880"
+          :mass="PhysicsConfig.presets.link.mass"
+          :influence="PhysicsConfig.presets.link.influence"
+          :cooldown="PhysicsConfig.presets.link.cooldown"
+          :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
           shape="compact"
           class="profile-link-body"
         >
@@ -378,22 +415,24 @@ onBeforeUnmount(() => {
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
-  filter: blur(8px);
-  transform: translateY(-8px) scale(0.97);
+  filter: blur(var(--hitokoto-shell-start-blur));
+  transform:
+    translateY(var(--hitokoto-shell-start-offset-y))
+    scale(var(--hitokoto-shell-start-scale));
   transform-origin: top center;
   pointer-events: none;
   transition:
-    opacity 620ms ease,
-    filter 620ms ease,
-    transform 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
-    max-height 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
-    margin-top 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
-    visibility 0s linear 720ms;
+    opacity var(--hitokoto-shell-fade-duration) ease,
+    filter var(--hitokoto-shell-fade-duration) ease,
+    transform var(--hitokoto-shell-move-duration) cubic-bezier(0.18, 0.9, 0.24, 1),
+    max-height var(--hitokoto-shell-move-duration) cubic-bezier(0.18, 0.9, 0.24, 1),
+    margin-top var(--hitokoto-shell-move-duration) cubic-bezier(0.18, 0.9, 0.24, 1),
+    visibility 0s linear var(--hitokoto-shell-move-duration);
 }
 
 .hitokoto-shell.is-visible {
-  max-height: 6rem;
-  margin-top: 0.1rem;
+  max-height: var(--hitokoto-shell-maximum-height);
+  margin-top: var(--hitokoto-shell-visible-margin-top);
   overflow: visible;
   opacity: 1;
   visibility: visible;

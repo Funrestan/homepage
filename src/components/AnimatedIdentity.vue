@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AnimationConfig from '../configs/animation.json'
+import IdentityConfig from '../configs/identity.json'
 import DragWord from './DragWord.vue'
 
 type Phase = 'intro' | 'illuminate' | 'extract' | 'merge' | 'resolve' | 'done'
@@ -28,19 +29,67 @@ type DragWordHandle = {
   getVisualElement: () => HTMLElement | null
 }
 
-const sourceFun = ref<DragWordHandle | null>(null)
-const sourceRest = ref<DragWordHandle | null>(null)
-const sourceAn = ref<DragWordHandle | null>(null)
-const partFun = ref<DragWordHandle | null>(null)
-const partRest = ref<DragWordHandle | null>(null)
-const partAn = ref<DragWordHandle | null>(null)
+type AssemblyPart = {
+  id: string
+  sourceId: string
+  text: string
+  floatDelay: number
+}
+
+type BioToken = {
+  id: string
+  text: string
+  floatDelay: number
+  extractId?: string
+  tightLeft?: boolean
+  kind?: 'name'
+}
+
+const assemblyParts = IdentityConfig.assembly.parts as AssemblyPart[]
+const bioTokens = IdentityConfig.bioTokens as BioToken[]
+const sourceHandles = new Map<string, DragWordHandle>()
+const partHandles = new Map<string, DragWordHandle>()
 const resolvedName = ref<DragWordHandle | null>(null)
 const placedName = ref<DragWordHandle | null>(null)
 const sentenceName = ref<DragWordHandle | null>(null)
 
 const showResolvedName = computed(() => phase.value === 'resolve')
 const showPlacedName = computed(() => phase.value === 'done')
+const accessibleBio = computed(() => IdentityConfig.accessibleBio.replaceAll('{name}', props.name))
+const identityStyle = computed(() => ({
+  '--identity-source-transition': `${AnimationConfig.identity.sourceTransitionDuration}ms`,
+  '--identity-workbench-transition': `${AnimationConfig.identity.workbenchTransitionDuration}ms`,
+  '--identity-workbench-start-offset': `${AnimationConfig.identity.workbenchStartOffset}px`,
+  '--identity-workbench-done-scale': String(AnimationConfig.identity.workbenchDoneScale),
+  '--identity-parts-gap': `${AnimationConfig.identity.partsInitialGap}rem`,
+  '--identity-parts-gap-duration': `${AnimationConfig.identity.partsGapDuration}ms`,
+  '--identity-parts-fade-duration': `${AnimationConfig.identity.partsFadeDuration}ms`,
+  '--identity-parts-filter-duration': `${AnimationConfig.identity.partsFilterDuration}ms`,
+  '--identity-part-color-duration': `${AnimationConfig.identity.partColorDuration}ms`,
+  '--identity-resolved-parts-blur': `${AnimationConfig.identity.resolvedPartsBlur}px`,
+  '--identity-resolved-fade-duration': `${AnimationConfig.identity.resolvedEnterFadeDuration}ms`,
+  '--identity-resolved-move-duration': `${AnimationConfig.identity.resolvedEnterMoveDuration}ms`,
+  '--identity-resolved-enter-blur': `${AnimationConfig.identity.resolvedEnterBlur}px`,
+  '--identity-resolved-enter-scale': String(AnimationConfig.identity.resolvedEnterScale),
+}))
 let completionEmitted = false
+
+const setPartHandle = (id: string, instance: unknown) => {
+  if (instance) partHandles.set(id, instance as DragWordHandle)
+  else partHandles.delete(id)
+}
+
+const setBioHandle = (token: BioToken, instance: unknown) => {
+  if (token.kind === 'name') {
+    sentenceName.value = instance as DragWordHandle | null
+    return
+  }
+  if (!token.extractId) return
+  if (instance) sourceHandles.set(token.extractId, instance as DragWordHandle)
+  else sourceHandles.delete(token.extractId)
+}
+
+const resolveBioText = (token: BioToken) => token.text.replaceAll('{name}', props.name)
 
 const emitComplete = () => {
   if (completionEmitted) return
@@ -71,12 +120,12 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
 
   const animation = targetVisual.animate([
     {
-      transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(0.88)`,
-      opacity: 0.08,
-      filter: 'blur(1.5px)',
+      transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${AnimationConfig.identity.copyStartScale})`,
+      opacity: AnimationConfig.identity.copyStartOpacity,
+      filter: `blur(${AnimationConfig.identity.copyStartBlur}px)`,
     },
     {
-      offset: 0.22,
+      offset: AnimationConfig.identity.copyRevealOffset,
       opacity: 1,
       filter: 'blur(0)',
     },
@@ -88,7 +137,7 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
   ], {
     duration: AnimationConfig.identity.copyDuration,
     delay,
-    easing: 'cubic-bezier(0.16, 0.82, 0.22, 1)',
+    easing: AnimationConfig.identity.copyEasing,
     fill: 'backwards',
   })
 
@@ -98,9 +147,13 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
 const beginExtraction = async () => {
   phase.value = 'extract'
   await nextTick()
-  animateCopy(sourceFun.value, partFun.value, 0)
-  animateCopy(sourceRest.value, partRest.value, AnimationConfig.identity.copyStagger)
-  animateCopy(sourceAn.value, partAn.value, AnimationConfig.identity.copyStagger * 2)
+  assemblyParts.forEach((part, index) => {
+    animateCopy(
+      sourceHandles.get(part.sourceId) ?? null,
+      partHandles.get(part.id) ?? null,
+      AnimationConfig.identity.copyStagger * index,
+    )
+  })
 }
 
 const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, delay: number) => {
@@ -119,7 +172,7 @@ const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, de
       opacity: 1,
     },
     {
-      offset: 0.72,
+      offset: AnimationConfig.identity.placementHoldOffset,
       opacity: 1,
     },
     {
@@ -129,7 +182,7 @@ const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, de
   ], {
     duration: AnimationConfig.identity.placementDuration,
     delay,
-    easing: 'cubic-bezier(0.18, 0.88, 0.25, 1)',
+    easing: AnimationConfig.identity.placementEasing,
     fill: 'backwards',
   })
 
@@ -178,13 +231,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section ref="identityRoot" class="identity" :data-phase="phase">
+  <section ref="identityRoot" class="identity" :data-phase="phase" :style="identityStyle">
     <div class="identity__name" aria-live="polite">
       <DragWord
         v-if="showPlacedName"
         ref="placedName"
         :text="props.name"
-        :delay="-1.6"
+        :delay="IdentityConfig.name.placedFloatDelay"
         class="identity__name-word"
       />
       <span v-if="!showPlacedName" class="identity__name-placeholder" aria-hidden="true">
@@ -194,16 +247,22 @@ onBeforeUnmount(() => {
       <div v-if="showWorkbench" class="identity__workbench" aria-hidden="true">
         <div class="identity__assembly">
           <div class="identity__parts">
-            <DragWord ref="partFun" text="fun" :delay="-0.5" class="identity__part identity__part--fun" />
-            <DragWord ref="partRest" text="rest" :delay="-1.3" class="identity__part identity__part--rest" />
-            <DragWord ref="partAn" text="an" :delay="-2.1" class="identity__part identity__part--an" />
+            <DragWord
+              v-for="part in assemblyParts"
+              :key="part.id"
+              :ref="(instance) => setPartHandle(part.id, instance)"
+              :text="part.text"
+              :delay="part.floatDelay"
+              class="identity__part"
+              :data-assembly-part="part.id"
+            />
           </div>
           <Transition name="resolved-name">
             <DragWord
               v-if="showResolvedName"
               ref="resolvedName"
               :text="props.name"
-              :delay="-1"
+              :delay="IdentityConfig.name.resolvedFloatDelay"
               class="identity__resolved"
             />
           </Transition>
@@ -212,30 +271,24 @@ onBeforeUnmount(() => {
     </div>
 
     <p class="identity__accessible-copy">
-      Have your fun, get your rest, be an original — that's {{ props.name }}.
+      {{ accessibleBio }}
     </p>
 
     <div class="identity__sentence" aria-hidden="true">
-      <DragWord text="Have" :delay="-0.2" />
-      <DragWord text="your" :delay="-1.1" />
-      <DragWord ref="sourceFun" text="fun" :delay="-2.3" class="identity__source identity__source--fun" />
-      <DragWord text="," :delay="-0.5" class="identity__punctuation" />
-      <DragWord text="get" :delay="-0.7" />
-      <DragWord text="your" :delay="-1.8" />
-      <DragWord ref="sourceRest" text="rest" :delay="-2.8" class="identity__source identity__source--rest" />
-      <DragWord text="," :delay="-1.2" class="identity__punctuation" />
-      <DragWord text="be" :delay="-0.4" />
-      <DragWord ref="sourceAn" text="an" :delay="-2.1" class="identity__source identity__source--an" />
-      <DragWord text="original" :delay="-1.4" />
-      <DragWord text="—" :delay="-0.9" />
-      <DragWord text="that's" :delay="-1.9" />
-      <DragWord
-        v-if="showPlacedName"
-        ref="sentenceName"
-        :text="`${props.name}.`"
-        :delay="-2.6"
-        class="identity__sentence-name"
-      />
+      <template v-for="token in bioTokens" :key="token.id">
+        <DragWord
+          v-if="token.kind !== 'name' || showPlacedName"
+          :ref="(instance) => setBioHandle(token, instance)"
+          :text="resolveBioText(token)"
+          :delay="token.floatDelay"
+          :class="{
+            'identity__source': token.extractId,
+            'identity__punctuation': token.tightLeft,
+            'identity__sentence-name': token.kind === 'name',
+          }"
+          :data-bio-token="token.id"
+        />
+      </template>
     </div>
 
   </section>
@@ -298,9 +351,9 @@ onBeforeUnmount(() => {
   color: var(--identity-ink);
   font-weight: 700;
   transition:
-    color 300ms ease,
-    filter 300ms ease,
-    opacity 300ms ease;
+    color var(--identity-source-transition) ease,
+    filter var(--identity-source-transition) ease,
+    opacity var(--identity-source-transition) ease;
 }
 
 [data-phase="illuminate"] .identity__source,
@@ -327,10 +380,10 @@ onBeforeUnmount(() => {
   place-items: center;
   overflow: visible;
   opacity: 0;
-  transform: translateY(5px);
+  transform: translateY(var(--identity-workbench-start-offset));
   transition:
-    opacity 300ms ease,
-    transform 300ms ease;
+    opacity var(--identity-workbench-transition) ease,
+    transform var(--identity-workbench-transition) ease;
   pointer-events: none;
 }
 
@@ -344,7 +397,7 @@ onBeforeUnmount(() => {
 
 [data-phase="done"] .identity__workbench {
   opacity: 0;
-  transform: scale(0.98);
+  transform: scale(var(--identity-workbench-done-scale));
   pointer-events: none;
 }
 
@@ -364,19 +417,19 @@ onBeforeUnmount(() => {
 .identity__parts {
   display: flex;
   align-items: baseline;
-  gap: 0.42rem;
+  gap: var(--identity-parts-gap);
   font-size: 1em;
   font-weight: 760;
   letter-spacing: -0.025em;
   transition:
-    gap 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease,
-    filter 220ms ease;
+    gap var(--identity-parts-gap-duration) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity var(--identity-parts-fade-duration) ease,
+    filter var(--identity-parts-fade-duration) ease;
 }
 
 .identity__part {
   color: rgb(24 105 169);
-  transition: color 650ms ease;
+  transition: color var(--identity-part-color-duration) ease;
 }
 
 .identity__part :deep(.drag-word__visual) {
@@ -385,9 +438,9 @@ onBeforeUnmount(() => {
   background: transparent;
   box-shadow: none;
   transition:
-    padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 220ms ease,
-    filter 260ms ease;
+    padding var(--identity-parts-gap-duration) cubic-bezier(0.22, 1, 0.36, 1),
+    opacity var(--identity-parts-fade-duration) ease,
+    filter var(--identity-parts-filter-duration) ease;
 }
 
 [data-phase="merge"] .identity__parts,
@@ -407,7 +460,7 @@ onBeforeUnmount(() => {
 
 [data-phase="resolve"] .identity__parts {
   opacity: 0;
-  filter: blur(7px);
+  filter: blur(var(--identity-resolved-parts-blur));
 }
 
 .identity__resolved {
@@ -420,15 +473,15 @@ onBeforeUnmount(() => {
 
 .resolved-name-enter-active {
   transition:
-    opacity 280ms ease,
-    transform 360ms cubic-bezier(0.18, 1.3, 0.32, 1),
-    filter 280ms ease;
+    opacity var(--identity-resolved-fade-duration) ease,
+    transform var(--identity-resolved-move-duration) cubic-bezier(0.18, 1.3, 0.32, 1),
+    filter var(--identity-resolved-fade-duration) ease;
 }
 
 .resolved-name-enter-from {
   opacity: 0;
-  filter: blur(8px);
-  transform: scale(0.86);
+  filter: blur(var(--identity-resolved-enter-blur));
+  transform: scale(var(--identity-resolved-enter-scale));
 }
 
 .identity__sentence-name {

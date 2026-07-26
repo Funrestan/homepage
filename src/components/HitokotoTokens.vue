@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AnimationConfig from '../configs/animation.json'
+import PhysicsConfig from '../configs/physics.json'
 import DragWord from './DragWord.vue'
 
 type HitokotoToken = {
@@ -37,6 +38,10 @@ const overlayElements = new Set<HTMLElement>()
 const timers: number[] = []
 let renderedVersion = -1
 let refreshStarted = false
+const tokenLineStyle = {
+  '--hitokoto-token-spacing': `${AnimationConfig.hitokoto.tokenSpacing}em`,
+  '--hitokoto-visibility-transition': `${AnimationConfig.hitokoto.visibilityTransition}ms`,
+}
 
 const isEnglishLetter = (character: string) => /^[A-Za-z]$/.test(character)
 
@@ -134,7 +139,7 @@ const createTextOverlay = (element: HTMLElement) => {
     textShadow: style.textShadow,
     whiteSpace: 'pre',
     pointerEvents: 'none',
-    zIndex: '70',
+    zIndex: String(AnimationConfig.hitokoto.overlayLayer),
     transformOrigin: 'center',
   })
   document.body.appendChild(overlay)
@@ -181,22 +186,22 @@ const dealCurrentTokens = async () => {
     const direction = index % 2 === 0 ? -1 : 1
     const animation = overlay.animate([
       {
-        opacity: 0.58,
-        filter: 'blur(4px)',
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 6}deg) scale(0.58)`,
+        opacity: AnimationConfig.hitokoto.dealStartOpacity,
+        filter: `blur(${AnimationConfig.hitokoto.dealStartBlur}px)`,
+        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * AnimationConfig.hitokoto.dealRotation}deg) scale(${AnimationConfig.hitokoto.dealStartScale})`,
       },
-      { offset: 0.24, opacity: 1, filter: 'blur(0)' },
+      { offset: AnimationConfig.hitokoto.dealRevealOffset, opacity: 1, filter: 'blur(0)' },
       {
-        offset: 0.76,
+        offset: AnimationConfig.hitokoto.dealTailOffset,
         opacity: 1,
         filter: 'blur(0)',
-        transform: `translate3d(${offsetX * 0.12}px, ${offsetY * 0.12 - 4}px, 0) rotate(${direction * -1.2}deg) scale(1.02)`,
+        transform: `translate3d(${offsetX * AnimationConfig.hitokoto.dealTailDistanceRatio}px, ${offsetY * AnimationConfig.hitokoto.dealTailDistanceRatio - AnimationConfig.hitokoto.dealTailLift}px, 0) rotate(${direction * -AnimationConfig.hitokoto.dealTailRotation}deg) scale(${AnimationConfig.hitokoto.dealTailScale})`,
       },
       { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) rotate(0) scale(1)' },
     ], {
       duration: AnimationConfig.hitokoto.dealDuration,
       delay: index * AnimationConfig.hitokoto.dealCadence,
-      easing: 'cubic-bezier(0.17, 0.86, 0.2, 1)',
+      easing: AnimationConfig.hitokoto.dealEasing,
       fill: 'backwards',
     })
     trackOverlayAnimation(animation, overlay, element)
@@ -230,28 +235,28 @@ const beginRefresh = () => {
     const direction = index % 2 === 0 ? -1 : 1
     const animation = overlay.animate([
       {
-        opacity: 0.92,
-        color: 'rgb(148 163 184)',
+        opacity: AnimationConfig.hitokoto.collectStartOpacity,
+        color: AnimationConfig.hitokoto.collectColor,
         filter: 'blur(0)',
         transform: 'translate3d(0, 0, 0) rotate(0) scale(1)',
       },
       {
-        offset: 0.72,
-        opacity: 0.72,
-        color: 'rgb(148 163 184)',
-        filter: 'blur(0.8px)',
-        transform: `translate3d(${offsetX * 0.78}px, ${offsetY * 0.78 - 5}px, 0) rotate(${direction * 2}deg) scale(0.76)`,
+        offset: AnimationConfig.hitokoto.collectMidOffset,
+        opacity: AnimationConfig.hitokoto.collectMidOpacity,
+        color: AnimationConfig.hitokoto.collectColor,
+        filter: `blur(${AnimationConfig.hitokoto.collectMidBlur}px)`,
+        transform: `translate3d(${offsetX * AnimationConfig.hitokoto.collectMidDistanceRatio}px, ${offsetY * AnimationConfig.hitokoto.collectMidDistanceRatio - AnimationConfig.hitokoto.collectMidLift}px, 0) rotate(${direction * AnimationConfig.hitokoto.collectMidRotation}deg) scale(${AnimationConfig.hitokoto.collectMidScale})`,
       },
       {
         opacity: AnimationConfig.hitokoto.collectOpacity,
-        color: 'rgb(148 163 184)',
-        filter: 'blur(1.8px)',
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 6}deg) scale(0.48)`,
+        color: AnimationConfig.hitokoto.collectColor,
+        filter: `blur(${AnimationConfig.hitokoto.collectEndBlur}px)`,
+        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * AnimationConfig.hitokoto.collectEndRotation}deg) scale(${AnimationConfig.hitokoto.collectEndScale})`,
       },
     ], {
       duration: AnimationConfig.hitokoto.collectDuration,
       delay: index * AnimationConfig.hitokoto.collectCadence,
-      easing: 'cubic-bezier(0.4, 0, 0.7, 0.25)',
+      easing: AnimationConfig.hitokoto.collectEasing,
       fill: 'forwards',
     })
     trackOverlayAnimation(animation, overlay)
@@ -287,16 +292,18 @@ defineExpose({ beginRefresh, cancelRefresh })
 </script>
 
 <template>
-  <div class="hitokoto-token-lines" :class="{ 'is-hidden': tokensHidden }">
+  <div class="hitokoto-token-lines" :class="{ 'is-hidden': tokensHidden }" :style="tokenLineStyle">
     <div class="hitokoto-token-line hitokoto-token-line--content">
       <DragWord
         v-for="token in contentTokens"
         :key="token.id"
         :ref="(instance) => setTokenHandle(token.id, instance)"
         :text="token.text"
-        :delay="-1"
-        :mass="0.72"
-        :settle-collision-cooldown="AnimationConfig.hitokoto.settleCollisionCooldown"
+        :delay="PhysicsConfig.presets.hitokotoToken.contentFloatDelay"
+        :mass="PhysicsConfig.presets.hitokotoToken.mass"
+        :influence="PhysicsConfig.presets.hitokotoToken.influence"
+        :cooldown="PhysicsConfig.presets.hitokotoToken.cooldown"
+        :settle-collision-cooldown="PhysicsConfig.presets.hitokotoToken.settleCollisionCooldown"
         class="hitokoto-token"
         :class="{ 'has-leading-space': token.spaceBefore }"
       />
@@ -307,9 +314,11 @@ defineExpose({ beginRefresh, cancelRefresh })
         :key="token.id"
         :ref="(instance) => setTokenHandle(token.id, instance)"
         :text="token.text"
-        :delay="-1.5"
-        :mass="0.72"
-        :settle-collision-cooldown="AnimationConfig.hitokoto.settleCollisionCooldown"
+        :delay="PhysicsConfig.presets.hitokotoToken.sourceFloatDelay"
+        :mass="PhysicsConfig.presets.hitokotoToken.mass"
+        :influence="PhysicsConfig.presets.hitokotoToken.influence"
+        :cooldown="PhysicsConfig.presets.hitokotoToken.cooldown"
+        :settle-collision-cooldown="PhysicsConfig.presets.hitokotoToken.settleCollisionCooldown"
         class="hitokoto-token"
         :class="{ 'has-leading-space': token.spaceBefore }"
       />
@@ -321,7 +330,7 @@ defineExpose({ beginRefresh, cancelRefresh })
 .hitokoto-token-lines {
   width: 100%;
   color: rgb(75 85 99);
-  transition: opacity 120ms ease;
+  transition: opacity var(--hitokoto-visibility-transition) ease;
 }
 
 .hitokoto-token-lines.is-hidden {
@@ -351,7 +360,7 @@ defineExpose({ beginRefresh, cancelRefresh })
 }
 
 .hitokoto-token.has-leading-space {
-  margin-left: 0.32em;
+  margin-left: var(--hitokoto-token-spacing);
 }
 
 @media (prefers-color-scheme: dark) {

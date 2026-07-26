@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import PhysicsConfig from '../configs/physics.json'
 import { useSoftPhysics } from '../composables/useSoftPhysics'
 
 const props = withDefaults(defineProps<{
   text?: string
   delay?: number
   mass?: number
+  influence?: number
+  cooldown?: number
   settleCollisionCooldown?: number
 }>(), {
   text: '',
   delay: 0,
-  mass: 0.82,
-  settleCollisionCooldown: 520,
+  mass: PhysicsConfig.presets.word.mass,
+  influence: PhysicsConfig.presets.word.influence,
+  cooldown: PhysicsConfig.presets.word.cooldown,
+  settleCollisionCooldown: PhysicsConfig.presets.word.settleCollisionCooldown,
 })
 
 const visualElement = ref<HTMLElement | null>(null)
@@ -25,8 +30,8 @@ const {
   clickCapture,
 } = useSoftPhysics({
   mass: props.mass,
-  influence: 1.08,
-  cooldown: 760,
+  influence: props.influence,
+  cooldown: props.cooldown,
   settleCollisionCooldown: props.settleCollisionCooldown,
 })
 
