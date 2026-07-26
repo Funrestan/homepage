@@ -9,7 +9,7 @@ const props = withDefaults(defineProps<{
   startDelay?: number
 }>(), {
   name: 'Funrestan',
-  startDelay: 2600,
+  startDelay: 3000,
 })
 
 const emit = defineEmits<{
@@ -85,7 +85,7 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
       filter: 'blur(0)',
     },
   ], {
-    duration: 760,
+    duration: 520,
     delay,
     easing: 'cubic-bezier(0.16, 0.82, 0.22, 1)',
     fill: 'backwards',
@@ -98,8 +98,8 @@ const beginExtraction = async () => {
   phase.value = 'extract'
   await nextTick()
   animateCopy(sourceFun.value, partFun.value, 0)
-  animateCopy(sourceRest.value, partRest.value, 65)
-  animateCopy(sourceAn.value, partAn.value, 130)
+  animateCopy(sourceRest.value, partRest.value, 35)
+  animateCopy(sourceAn.value, partAn.value, 70)
 }
 
 const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, delay: number) => {
@@ -126,7 +126,7 @@ const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, de
       opacity: 1,
     },
   ], {
-    duration: 720,
+    duration: 520,
     delay,
     easing: 'cubic-bezier(0.18, 0.88, 0.25, 1)',
     fill: 'backwards',
@@ -142,13 +142,13 @@ const finishAnimation = async () => {
 
   if (sourceRect) {
     animatePlacement(sourceRect, placedName.value, 0)
-    animatePlacement(sourceRect, sentenceName.value, 70)
+    animatePlacement(sourceRect, sentenceName.value, 35)
   }
 
   timers.push(window.setTimeout(() => {
     showWorkbench.value = false
     emitComplete()
-  }, 780))
+  }, 580))
 }
 
 onMounted(() => {
@@ -160,9 +160,9 @@ onMounted(() => {
   }
 
   timers.push(window.setTimeout(beginExtraction, props.startDelay))
-  schedulePhase('merge', props.startDelay + 780)
-  schedulePhase('resolve', props.startDelay + 1340)
-  timers.push(window.setTimeout(finishAnimation, props.startDelay + 1860))
+  schedulePhase('merge', props.startDelay + 480)
+  schedulePhase('resolve', props.startDelay + 840)
+  timers.push(window.setTimeout(finishAnimation, props.startDelay + 1170))
 })
 
 onBeforeUnmount(() => {
@@ -292,9 +292,9 @@ onBeforeUnmount(() => {
   color: var(--identity-ink);
   font-weight: 700;
   transition:
-    color 420ms ease,
-    filter 420ms ease,
-    opacity 420ms ease;
+    color 300ms ease,
+    filter 300ms ease,
+    opacity 300ms ease;
 }
 
 [data-phase="extract"] .identity__source,
@@ -323,8 +323,8 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: translateY(5px);
   transition:
-    opacity 420ms ease,
-    transform 420ms ease;
+    opacity 300ms ease,
+    transform 300ms ease;
   pointer-events: none;
 }
 
@@ -363,9 +363,9 @@ onBeforeUnmount(() => {
   font-weight: 760;
   letter-spacing: -0.025em;
   transition:
-    gap 520ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 320ms ease,
-    filter 320ms ease;
+    gap 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease,
+    filter 220ms ease;
 }
 
 .identity__part {
@@ -380,9 +380,9 @@ onBeforeUnmount(() => {
   background: rgb(231 246 255 / 50%);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
   transition:
-    padding 520ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 420ms ease,
-    background-color 420ms ease;
+    padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 280ms ease,
+    background-color 280ms ease;
 }
 
 [data-phase="merge"] .identity__parts,
@@ -417,9 +417,9 @@ onBeforeUnmount(() => {
 
 .resolved-name-enter-active {
   transition:
-    opacity 420ms ease,
-    transform 520ms cubic-bezier(0.18, 1.3, 0.32, 1),
-    filter 420ms ease;
+    opacity 280ms ease,
+    transform 360ms cubic-bezier(0.18, 1.3, 0.32, 1),
+    filter 280ms ease;
 }
 
 .resolved-name-enter-from {

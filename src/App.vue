@@ -84,12 +84,15 @@ const runEntranceAnimation = async () => {
 
   const panelRect = panel.getBoundingClientRect();
   const avatarRect = avatarRoot.getBoundingClientRect();
-  const panelCenterX = panelRect.left + panelRect.width / 2;
-  const panelCenterY = panelRect.top + panelRect.height / 2;
-  const avatarOffsetX = panelCenterX - avatarRect.left - avatarRect.width / 2;
-  const avatarOffsetY = panelCenterY - avatarRect.top - avatarRect.height / 2;
-  const avatarOriginX = avatarRect.left + avatarRect.width / 2 + avatarOffsetX;
-  const avatarOriginY = avatarRect.top + avatarRect.height / 2 + avatarOffsetY;
+  const nameRect = identity.querySelector<HTMLElement>('.identity__name')?.getBoundingClientRect();
+  if (!nameRect) return;
+
+  const finalAvatarX = avatarRect.left + avatarRect.width / 2;
+  const finalAvatarY = avatarRect.top + avatarRect.height / 2;
+  const nameCenterX = nameRect.left + nameRect.width / 2;
+  const nameCenterY = nameRect.top + nameRect.height / 2;
+  const avatarOffsetX = nameCenterX - finalAvatarX;
+  const avatarOffsetY = nameCenterY - finalAvatarY;
   const fullWidthPanel = window.matchMedia('(max-width: 767px)').matches;
   const bioTargets = Array.from(identity.querySelectorAll<HTMLElement>(
     '.identity__sentence .drag-word__float, .identity__sentence > .identity__punctuation',
@@ -97,6 +100,78 @@ const runEntranceAnimation = async () => {
   const linkTargets = Array.from(
     links.querySelectorAll<HTMLElement>('.profile-link-body .physics-item__content'),
   ).map((element) => ({ element, rect: element.getBoundingClientRect() }));
+  const dealTargets = [
+    ...bioTargets.map((target) => ({ ...target, kind: 'bio' as const })),
+    ...linkTargets.map((target) => ({ ...target, kind: 'link' as const })),
+  ];
+  const avatarDelay = 620;
+  const dealStart = 1450;
+  const dealCadence = 52;
+  const compositionStart = 3000;
+  const avatarEnd = 3380;
+  const avatarDuration = avatarEnd - avatarDelay;
+  const steppedTravel = 0.58;
+  const avatarTransform = (progress: number, scale = 1) => {
+    const remaining = 1 - progress;
+    return `translate3d(${avatarOffsetX * remaining}px, ${avatarOffsetY * remaining}px, 0) scale(${scale})`;
+  };
+  const avatarOffsetAt = (absoluteTime: number) => (absoluteTime - avatarDelay) / avatarDuration;
+  const avatarFrames: Keyframe[] = [
+    {
+      offset: 0,
+      opacity: 0,
+      filter: 'blur(20px)',
+      transform: avatarTransform(0, 0.82),
+      easing: 'cubic-bezier(0.2, 0.82, 0.22, 1)',
+    },
+    {
+      offset: avatarOffsetAt(1200),
+      opacity: 1,
+      filter: 'blur(0)',
+      transform: avatarTransform(0),
+      easing: 'linear',
+    },
+    {
+      offset: avatarOffsetAt(dealStart - 12),
+      opacity: 1,
+      filter: 'blur(0)',
+      transform: avatarTransform(0),
+      easing: 'linear',
+    },
+  ];
+
+  dealTargets.forEach((_, index) => {
+    const previousProgress = index / Math.max(1, dealTargets.length) * steppedTravel;
+    const nextProgress = (index + 1) / Math.max(1, dealTargets.length) * steppedTravel;
+    const dealTime = dealStart + index * dealCadence;
+    avatarFrames.push(
+      {
+        offset: avatarOffsetAt(dealTime),
+        opacity: 1,
+        filter: 'blur(0)',
+        transform: avatarTransform(previousProgress, 1.014),
+        easing: 'cubic-bezier(0.18, 0.86, 0.22, 1)',
+      },
+      {
+        offset: avatarOffsetAt(dealTime + 34),
+        opacity: 1,
+        filter: 'blur(0)',
+        transform: avatarTransform(nextProgress, 0.992),
+        easing: 'ease-out',
+      },
+    );
+  });
+
+  avatarFrames.push(
+    {
+      offset: avatarOffsetAt(compositionStart),
+      opacity: 1,
+      filter: 'blur(0)',
+      transform: avatarTransform(steppedTravel),
+      easing: 'cubic-bezier(0.16, 0.88, 0.2, 1)',
+    },
+    { offset: 1, opacity: 1, filter: 'blur(0)', transform: avatarTransform(1) },
+  );
 
   registerEntrance(panel.animate(fullWidthPanel ? [
     { opacity: 0, filter: 'blur(18px)', transform: 'scale(1.025)' },
@@ -110,67 +185,42 @@ const runEntranceAnimation = async () => {
     fill: 'backwards',
   }));
 
-  registerEntrance(avatarVisual.animate([
-    {
-      opacity: 0,
-      filter: 'blur(20px)',
-      transform: `translate3d(${avatarOffsetX}px, ${avatarOffsetY}px, 0) scale(0.82)`,
-      easing: 'cubic-bezier(0.2, 0.82, 0.22, 1)',
-    },
-    {
-      offset: 0.34,
-      opacity: 1,
-      filter: 'blur(0)',
-      transform: `translate3d(${avatarOffsetX}px, ${avatarOffsetY}px, 0) scale(1)`,
-      easing: 'linear',
-    },
-    {
-      offset: 0.48,
-      opacity: 1,
-      filter: 'blur(0)',
-      transform: `translate3d(${avatarOffsetX}px, ${avatarOffsetY}px, 0) scale(1)`,
-      easing: 'cubic-bezier(0.16, 0.86, 0.22, 1)',
-    },
-    { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) scale(1)' },
-  ], {
-    duration: 1850,
-    delay: 620,
+  registerEntrance(avatarVisual.animate(avatarFrames, {
+    duration: avatarDuration,
+    delay: avatarDelay,
     easing: 'linear',
     fill: 'backwards',
   }));
 
-  bioTargets.forEach(({ element: part, rect: partRect }, index) => {
-    const offsetX = avatarOriginX - partRect.left - partRect.width / 2;
-    const offsetY = avatarOriginY - partRect.top - partRect.height / 2;
-    registerEntrance(part.animate([
+  dealTargets.forEach(({ element, rect, kind }, index) => {
+    const travelProgress = index / Math.max(1, dealTargets.length - 1) * steppedTravel;
+    const sourceX = nameCenterX + (finalAvatarX - nameCenterX) * travelProgress;
+    const sourceY = nameCenterY + (finalAvatarY - nameCenterY) * travelProgress;
+    const offsetX = sourceX - rect.left - rect.width / 2;
+    const offsetY = sourceY - rect.top - rect.height / 2;
+    const direction = index % 2 === 0 ? -1 : 1;
+    registerEntrance(element.animate([
       {
         opacity: 0,
-        filter: 'blur(11px)',
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(0.3)`,
+        filter: `blur(${kind === 'bio' ? 8 : 6}px)`,
+        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 7}deg) scale(${kind === 'bio' ? 0.56 : 0.48})`,
       },
-      { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) scale(1)' },
-    ], {
-      duration: 680 + index * 4,
-      delay: 1510,
-      easing: 'cubic-bezier(0.16, 0.88, 0.2, 1)',
-      fill: 'backwards',
-    }));
-  });
-
-  linkTargets.forEach(({ element: link, rect: linkRect }, index) => {
-    const offsetX = avatarOriginX - linkRect.left - linkRect.width / 2;
-    const offsetY = avatarOriginY - linkRect.top - linkRect.height / 2;
-    registerEntrance(link.animate([
       {
-        opacity: 0,
-        filter: 'blur(10px)',
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(0.35)`,
+        offset: 0.2,
+        opacity: 1,
+        filter: 'blur(0)',
       },
-      { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) scale(1)' },
+      {
+        offset: 0.74,
+        opacity: 1,
+        filter: 'blur(0)',
+        transform: `translate3d(${offsetX * 0.14}px, ${offsetY * 0.14 - 7}px, 0) rotate(${direction * -1.4}deg) scale(1.025)`,
+      },
+      { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) rotate(0) scale(1)' },
     ], {
-      duration: 650 + index * 18,
-      delay: 1510,
-      easing: 'cubic-bezier(0.18, 0.9, 0.2, 1)',
+      duration: 500,
+      delay: dealStart + index * dealCadence,
+      easing: 'cubic-bezier(0.17, 0.86, 0.2, 1)',
       fill: 'backwards',
     }));
   });
@@ -180,8 +230,8 @@ const runEntranceAnimation = async () => {
       { opacity: 0, filter: 'blur(7px)', transform: 'translateY(12px)' },
       { opacity: 1, filter: 'blur(0)', transform: 'translateY(0)' },
     ], {
-      duration: 720,
-      delay: 1760,
+      duration: 620,
+      delay: dealStart + dealTargets.length * dealCadence - 180,
       easing: 'ease-out',
       fill: 'backwards',
     }));
@@ -221,7 +271,7 @@ onBeforeUnmount(() => {
         <img :src="AuthorInfo.avatar" alt="avatar" draggable="false"
           class="profile-avatar h-40 w-40 rounded-full shadow-xl">
       </PhysicsItem>
-      <AnimatedIdentity ref="identityItem" :name="AuthorInfo.name" :start-delay="2600" @complete="revealHitokoto" />
+      <AnimatedIdentity ref="identityItem" :name="AuthorInfo.name" :start-delay="3000" @complete="revealHitokoto" />
       <!-- 一言 -->
       <div
         v-if="SiteConfig.hitokoto.enable"
@@ -296,8 +346,9 @@ onBeforeUnmount(() => {
 
 .hitokoto-shell {
   width: 100%;
-  min-height: 2.5rem;
-  max-height: 2.5rem;
+  min-height: 0;
+  max-height: 0;
+  margin-top: 0;
   overflow: hidden;
   opacity: 0;
   visibility: hidden;
@@ -309,10 +360,14 @@ onBeforeUnmount(() => {
     opacity 620ms ease,
     filter 620ms ease,
     transform 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
+    max-height 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
+    margin-top 720ms cubic-bezier(0.18, 0.9, 0.24, 1),
     visibility 0s linear 720ms;
 }
 
 .hitokoto-shell.is-visible {
+  max-height: 3rem;
+  margin-top: 0.1rem;
   opacity: 1;
   visibility: visible;
   filter: blur(0);
