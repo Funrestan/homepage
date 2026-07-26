@@ -6,10 +6,12 @@ const props = withDefaults(defineProps<{
   text?: string
   delay?: number
   mass?: number
+  settleCollisionCooldown?: number
 }>(), {
   text: '',
   delay: 0,
   mass: 0.82,
+  settleCollisionCooldown: 520,
 })
 
 const visualElement = ref<HTMLElement | null>(null)
@@ -21,7 +23,12 @@ const {
   pointerMove,
   pointerUp,
   clickCapture,
-} = useSoftPhysics({ mass: props.mass, influence: 1.08, cooldown: 760 })
+} = useSoftPhysics({
+  mass: props.mass,
+  influence: 1.08,
+  cooldown: 760,
+  settleCollisionCooldown: props.settleCollisionCooldown,
+})
 
 defineExpose({
   getElement: () => elementRef.value,

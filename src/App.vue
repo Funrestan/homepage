@@ -394,6 +394,7 @@ onBeforeUnmount(() => {
 .hitokoto-shell.is-visible {
   max-height: 6rem;
   margin-top: 0.1rem;
+  overflow: visible;
   opacity: 1;
   visibility: visible;
   filter: blur(0);

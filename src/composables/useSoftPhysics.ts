@@ -4,6 +4,7 @@ type PhysicsOptions = {
   mass?: number
   influence?: number
   cooldown?: number
+  settleCollisionCooldown?: number
 }
 
 type Particle = {
@@ -12,6 +13,7 @@ type Particle = {
   mass: number
   influence: number
   cooldown: number
+  settleCollisionCooldown: number
   x: number
   y: number
   paintedX: number
@@ -27,7 +29,9 @@ type Particle = {
   dragTargetY: number
   returnRipplePending: boolean
   returnRipplePrimed: boolean
+  collisionReturnPending: boolean
   collisionImmuneUntil: number
+  collisionActiveUntil: number
   dragVisualActive: Ref<boolean>
 }
 
@@ -137,6 +141,12 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
       const b = other.particle
       if (time < a.collisionImmuneUntil || time < b.collisionImmuneUntil) continue
 
+      // Ripple motion is visual-only. Only a real drag/inertial impact may
+      // start or continue the chain of label-to-label collisions.
+      const aCollisionActive = a.dragVisualActive.value || time < a.collisionActiveUntil
+      const bCollisionActive = b.dragVisualActive.value || time < b.collisionActiveUntil
+      if (!aCollisionActive && !bCollisionActive) continue
+
       const aReturning = !a.dragging && time >= a.cooldownUntil && Math.hypot(a.x, a.y) > 0.8
       const bReturning = !b.dragging && time >= b.cooldownUntil && Math.hypot(b.x, b.y) > 0.8
       if (aReturning || bReturning) continue
@@ -188,8 +198,16 @@ const resolveCollisions = (items: Particle[], delta: number, time: number) => {
 
       const impact = clamp(Math.min(overlapX, overlapY) * 0.012, 0.025, 0.18)
       const inertialDuration = clamp(420 + approachSpeed * 34 + impact * 900, 480, 1050)
-      if (!a.dragging) a.cooldownUntil = Math.max(a.cooldownUntil, time + inertialDuration)
-      if (!b.dragging) b.cooldownUntil = Math.max(b.cooldownUntil, time + inertialDuration)
+      if (!a.dragging) {
+        a.cooldownUntil = Math.max(a.cooldownUntil, time + inertialDuration)
+        a.collisionActiveUntil = Math.max(a.collisionActiveUntil, time + inertialDuration)
+        a.collisionReturnPending = true
+      }
+      if (!b.dragging) {
+        b.cooldownUntil = Math.max(b.cooldownUntil, time + inertialDuration)
+        b.collisionActiveUntil = Math.max(b.collisionActiveUntil, time + inertialDuration)
+        b.collisionReturnPending = true
+      }
       a.compression = Math.max(a.compression, impact)
       b.compression = Math.max(b.compression, impact)
     }
@@ -313,6 +331,8 @@ const tick = (time: number) => {
           particle.vy = 0
           particle.returnRipplePending = false
           particle.returnRipplePrimed = false
+          particle.collisionReturnPending = false
+          particle.collisionActiveUntil = 0
           particle.dragVisualActive.value = false
         } else {
           const returnAge = Math.max(0, time - particle.cooldownUntil)
@@ -330,16 +350,24 @@ const tick = (time: number) => {
           if (distance < 1.15 || crossedHome) {
             const shouldRipple = particle.returnRipplePending
             const rippleWasPrimed = particle.returnRipplePrimed
+            const shouldLiftOnSettle = particle.collisionReturnPending && !shouldRipple
             const homeCenter = shouldRipple ? getHomeCenter(particle) : null
             particle.x = 0
             particle.y = 0
             particle.vx = 0
             particle.vy = 0
             if (shouldRipple) particle.compression = Math.max(particle.compression, 0.14)
-            particle.collisionImmuneUntil = time + 520
+            particle.collisionImmuneUntil = time + particle.settleCollisionCooldown
+            particle.collisionActiveUntil = 0
             particle.returnRipplePending = false
             particle.returnRipplePrimed = false
+            particle.collisionReturnPending = false
             particle.dragVisualActive.value = false
+
+            if (shouldLiftOnSettle) {
+              particle.vz += 0.78
+              particle.compression = Math.max(particle.compression, 0.075)
+            }
 
             if (shouldRipple) {
               particle.element.classList.remove('is-impacting')
@@ -437,7 +465,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   let previousPointerY = 0
   let previousPointerTime = 0
   let moved = false
-  let suppressClick = false
+  let suppressClickUntil = 0
 
   onMounted(() => {
     if (!elementRef.value) return
@@ -448,6 +476,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       mass: Math.max(0.35, options.mass ?? 1),
       influence: Math.max(0.2, options.influence ?? 1),
       cooldown: Math.max(0, options.cooldown ?? 720),
+      settleCollisionCooldown: Math.max(0, options.settleCollisionCooldown ?? 520),
       x: 0,
       y: 0,
       paintedX: 0,
@@ -463,7 +492,9 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       dragTargetY: 0,
       returnRipplePending: false,
       returnRipplePrimed: false,
+      collisionReturnPending: false,
       collisionImmuneUntil: 0,
+      collisionActiveUntil: 0,
       dragVisualActive,
     }
 
@@ -492,7 +523,11 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   })
 
   const pointerDown = (event: PointerEvent) => {
-    if (!particle || (event.pointerType === 'mouse' && event.button !== 0)) return
+    if (
+      !particle
+      || activePointer !== null
+      || (event.pointerType === 'mouse' && event.button !== 0)
+    ) return
 
     activePointer = event.pointerId
     pointerStartX = event.clientX
@@ -503,13 +538,15 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     previousPointerY = event.clientY
     previousPointerTime = performance.now()
     moved = false
-    suppressClick = false
+    suppressClickUntil = 0
     particle.dragging = true
     particle.dragTargetX = particle.x
     particle.dragTargetY = particle.y
     particle.returnRipplePending = false
     particle.returnRipplePrimed = false
+    particle.collisionReturnPending = false
     particle.collisionImmuneUntil = 0
+    particle.collisionActiveUntil = 0
     particle.cooldownUntil = Number.POSITIVE_INFINITY
     dragging.value = true
     particle.compression = Math.max(particle.compression, 0.045)
@@ -536,10 +573,15 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     particle.vx += remainingX * dragImpulse
     particle.vy += remainingY * dragImpulse
     particle.compression = Math.max(particle.compression, clamp(speed * 0.018, 0.03, 0.17))
-    const crossedDragThreshold = Math.hypot(event.clientX - pointerStartX, event.clientY - pointerStartY) > 5
+    const movementThreshold = event.pointerType === 'touch' ? 8 : 5
+    const crossedDragThreshold = Math.hypot(
+      event.clientX - pointerStartX,
+      event.clientY - pointerStartY,
+    ) > movementThreshold
     if (!moved && crossedDragThreshold) {
       moved = true
       dragVisualActive.value = true
+      particle.collisionActiveUntil = Number.POSITIVE_INFINITY
       if (!particle.element.hasPointerCapture(event.pointerId)) {
         particle.element.setPointerCapture(event.pointerId)
       }
@@ -560,23 +602,24 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       particle.element.releasePointerCapture(pointerId)
     }
 
-    suppressClick = moved
+    suppressClickUntil = moved ? performance.now() + 900 : 0
     particle.returnRipplePending = moved
     if (!moved) dragVisualActive.value = false
     particle.vx += (particle.dragTargetX - particle.x) * 0.04
     particle.vy += (particle.dragTargetY - particle.y) * 0.04
     particle.dragging = false
     particle.cooldownUntil = performance.now() + particle.cooldown
+    particle.collisionActiveUntil = moved ? particle.cooldownUntil : 0
     particle.vx *= 0.62
     particle.vy *= 0.62
     dragging.value = false
   }
 
   const clickCapture = (event: MouseEvent) => {
-    if (!suppressClick) return
+    if (performance.now() > suppressClickUntil) return
     event.preventDefault()
     event.stopPropagation()
-    suppressClick = false
+    suppressClickUntil = 0
   }
 
   return {

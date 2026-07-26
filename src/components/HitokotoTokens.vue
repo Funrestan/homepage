@@ -95,18 +95,73 @@ const getOrigin = () => {
 
 const orderedHandles = () => Array.from(tokenHandles.values())
   .map((handle) => ({
-    handle,
     element: handle.getElement(),
-    visual: handle.getVisualElement(),
   }))
-  .filter((entry): entry is { handle: DragWordHandle; element: HTMLElement; visual: HTMLElement } => (
-    Boolean(entry.element && entry.visual)
-  ))
+  .filter((entry): entry is { element: HTMLElement } => Boolean(entry.element))
   .sort((a, b) => {
     const aRect = a.element.getBoundingClientRect()
     const bRect = b.element.getBoundingClientRect()
     return Math.abs(aRect.top - bRect.top) > 4 ? aRect.top - bRect.top : aRect.left - bRect.left
   })
+
+const createTextOverlay = (element: HTMLElement) => {
+  const rect = element.getBoundingClientRect()
+  const style = getComputedStyle(element)
+  const overlay = document.createElement('span')
+  overlay.className = 'hitokoto-text-overlay'
+  overlay.textContent = (element.textContent || '').trim()
+  Object.assign(overlay.style, {
+    position: 'fixed',
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxSizing: 'border-box',
+    margin: '0',
+    padding: '0',
+    border: '0',
+    background: 'transparent',
+    color: style.color,
+    fontFamily: style.fontFamily,
+    fontSize: style.fontSize,
+    fontStyle: style.fontStyle,
+    fontWeight: style.fontWeight,
+    letterSpacing: style.letterSpacing,
+    lineHeight: style.lineHeight,
+    textShadow: style.textShadow,
+    whiteSpace: 'pre',
+    pointerEvents: 'none',
+    zIndex: '70',
+    transformOrigin: 'center',
+  })
+  document.body.appendChild(overlay)
+  overlayElements.add(overlay)
+  return { overlay, rect }
+}
+
+const trackOverlayAnimation = (
+  animation: Animation,
+  overlay: HTMLElement,
+  revealElement?: HTMLElement,
+) => {
+  activeAnimations.push(animation)
+  const cleanup = () => {
+    overlay.remove()
+    overlayElements.delete(overlay)
+    if (revealElement) revealElement.style.removeProperty('visibility')
+    const animationIndex = activeAnimations.indexOf(animation)
+    if (animationIndex >= 0) activeAnimations.splice(animationIndex, 1)
+  }
+  animation.finished.then(cleanup, cleanup)
+}
+
+const stopActiveAnimations = () => {
+  activeAnimations.splice(0).forEach((animation) => animation.cancel())
+  orderedHandles().forEach(({ element }) => element.style.removeProperty('visibility'))
+}
 
 const dealCurrentTokens = async () => {
   await nextTick()
@@ -118,15 +173,16 @@ const dealCurrentTokens = async () => {
 
   const entries = orderedHandles()
   tokensHidden.value = false
-  entries.forEach(({ element, visual }, index) => {
-    const rect = element.getBoundingClientRect()
+  entries.forEach(({ element }, index) => {
+    element.style.visibility = 'hidden'
+    const { overlay, rect } = createTextOverlay(element)
     const offsetX = origin.x - rect.left - rect.width / 2
     const offsetY = origin.y - rect.top - rect.height / 2
     const direction = index % 2 === 0 ? -1 : 1
-    const animation = visual.animate([
+    const animation = overlay.animate([
       {
-        opacity: 0,
-        filter: 'blur(8px)',
+        opacity: 0.58,
+        filter: 'blur(4px)',
         transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 6}deg) scale(0.58)`,
       },
       { offset: 0.24, opacity: 1, filter: 'blur(0)' },
@@ -143,7 +199,7 @@ const dealCurrentTokens = async () => {
       easing: 'cubic-bezier(0.17, 0.86, 0.2, 1)',
       fill: 'backwards',
     })
-    activeAnimations.push(animation)
+    trackOverlayAnimation(animation, overlay, element)
   })
 }
 
@@ -161,36 +217,36 @@ const renderVersion = async () => {
 const beginRefresh = () => {
   if (refreshStarted) return
   refreshStarted = true
+  stopActiveAnimations()
   const origin = getOrigin()
   if (!origin) return
 
   const entries = orderedHandles()
   entries.forEach(({ element }, index) => {
-    const rect = element.getBoundingClientRect()
-    const clone = element.cloneNode(true) as HTMLElement
-    clone.classList.add('hitokoto-token-clone')
-    Object.assign(clone.style, {
-      position: 'fixed',
-      left: `${rect.left}px`,
-      top: `${rect.top}px`,
-      width: `${rect.width}px`,
-      height: `${rect.height}px`,
-      margin: '0',
-      pointerEvents: 'none',
-      zIndex: '70',
-      transform: 'none',
-    })
-    document.body.appendChild(clone)
-    overlayElements.add(clone)
-
+    const { overlay, rect } = createTextOverlay(element)
+    element.style.visibility = 'hidden'
     const offsetX = origin.x - rect.left - rect.width / 2
     const offsetY = origin.y - rect.top - rect.height / 2
-    const animation = clone.animate([
-      { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) rotate(0) scale(1)' },
+    const direction = index % 2 === 0 ? -1 : 1
+    const animation = overlay.animate([
       {
-        opacity: 0,
-        filter: 'blur(7px)',
-        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${index % 2 === 0 ? -5 : 5}deg) scale(0.42)`,
+        opacity: 0.92,
+        color: 'rgb(148 163 184)',
+        filter: 'blur(0)',
+        transform: 'translate3d(0, 0, 0) rotate(0) scale(1)',
+      },
+      {
+        offset: 0.72,
+        opacity: 0.72,
+        color: 'rgb(148 163 184)',
+        filter: 'blur(0.8px)',
+        transform: `translate3d(${offsetX * 0.78}px, ${offsetY * 0.78 - 5}px, 0) rotate(${direction * 2}deg) scale(0.76)`,
+      },
+      {
+        opacity: AnimationConfig.hitokoto.collectOpacity,
+        color: 'rgb(148 163 184)',
+        filter: 'blur(1.8px)',
+        transform: `translate3d(${offsetX}px, ${offsetY}px, 0) rotate(${direction * 6}deg) scale(0.48)`,
       },
     ], {
       duration: AnimationConfig.hitokoto.collectDuration,
@@ -198,14 +254,7 @@ const beginRefresh = () => {
       easing: 'cubic-bezier(0.4, 0, 0.7, 0.25)',
       fill: 'forwards',
     })
-    animation.finished.then(() => {
-      clone.remove()
-      overlayElements.delete(clone)
-    }, () => {
-      clone.remove()
-      overlayElements.delete(clone)
-    })
-    activeAnimations.push(animation)
+    trackOverlayAnimation(animation, overlay)
   })
 
   tokensHidden.value = true
@@ -213,6 +262,7 @@ const beginRefresh = () => {
 
 const cancelRefresh = () => {
   refreshStarted = false
+  stopActiveAnimations()
   tokensHidden.value = false
 }
 
@@ -228,7 +278,7 @@ watch(
 
 onBeforeUnmount(() => {
   timers.forEach((timer) => window.clearTimeout(timer))
-  activeAnimations.forEach((animation) => animation.cancel())
+  stopActiveAnimations()
   overlayElements.forEach((element) => element.remove())
   overlayElements.clear()
 })
@@ -246,6 +296,7 @@ defineExpose({ beginRefresh, cancelRefresh })
         :text="token.text"
         :delay="-1"
         :mass="0.72"
+        :settle-collision-cooldown="AnimationConfig.hitokoto.settleCollisionCooldown"
         class="hitokoto-token"
         :class="{ 'has-leading-space': token.spaceBefore }"
       />
@@ -258,6 +309,7 @@ defineExpose({ beginRefresh, cancelRefresh })
         :text="token.text"
         :delay="-1.5"
         :mass="0.72"
+        :settle-collision-cooldown="AnimationConfig.hitokoto.settleCollisionCooldown"
         class="hitokoto-token"
         :class="{ 'has-leading-space': token.spaceBefore }"
       />
