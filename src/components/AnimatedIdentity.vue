@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import AnimationConfig from '../configs/animation.json'
 import DragWord from './DragWord.vue'
 
-type Phase = 'intro' | 'extract' | 'merge' | 'resolve' | 'done'
+type Phase = 'intro' | 'illuminate' | 'extract' | 'merge' | 'resolve' | 'done'
 
 const props = withDefaults(defineProps<{
   name?: string
   startDelay?: number
 }>(), {
   name: 'Funrestan',
-  startDelay: 3000,
+  startDelay: AnimationConfig.entrance.compositionStart,
 })
 
 const emit = defineEmits<{
@@ -85,7 +86,7 @@ const animateCopy = (source: DragWordHandle | null, target: DragWordHandle | nul
       filter: 'blur(0)',
     },
   ], {
-    duration: 520,
+    duration: AnimationConfig.identity.copyDuration,
     delay,
     easing: 'cubic-bezier(0.16, 0.82, 0.22, 1)',
     fill: 'backwards',
@@ -98,8 +99,8 @@ const beginExtraction = async () => {
   phase.value = 'extract'
   await nextTick()
   animateCopy(sourceFun.value, partFun.value, 0)
-  animateCopy(sourceRest.value, partRest.value, 35)
-  animateCopy(sourceAn.value, partAn.value, 70)
+  animateCopy(sourceRest.value, partRest.value, AnimationConfig.identity.copyStagger)
+  animateCopy(sourceAn.value, partAn.value, AnimationConfig.identity.copyStagger * 2)
 }
 
 const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, delay: number) => {
@@ -126,7 +127,7 @@ const animatePlacement = (sourceRect: DOMRect, target: DragWordHandle | null, de
       opacity: 1,
     },
   ], {
-    duration: 520,
+    duration: AnimationConfig.identity.placementDuration,
     delay,
     easing: 'cubic-bezier(0.18, 0.88, 0.25, 1)',
     fill: 'backwards',
@@ -142,13 +143,13 @@ const finishAnimation = async () => {
 
   if (sourceRect) {
     animatePlacement(sourceRect, placedName.value, 0)
-    animatePlacement(sourceRect, sentenceName.value, 35)
+    animatePlacement(sourceRect, sentenceName.value, AnimationConfig.identity.placementStagger)
   }
 
   timers.push(window.setTimeout(() => {
     showWorkbench.value = false
     emitComplete()
-  }, 580))
+  }, AnimationConfig.identity.completeAfterPlacement))
 }
 
 onMounted(() => {
@@ -159,10 +160,15 @@ onMounted(() => {
     return
   }
 
-  timers.push(window.setTimeout(beginExtraction, props.startDelay))
-  schedulePhase('merge', props.startDelay + 480)
-  schedulePhase('resolve', props.startDelay + 840)
-  timers.push(window.setTimeout(finishAnimation, props.startDelay + 1170))
+  schedulePhase('illuminate', props.startDelay)
+  const extractionStart = props.startDelay + AnimationConfig.identity.glowLead
+  timers.push(window.setTimeout(beginExtraction, extractionStart))
+  schedulePhase('merge', extractionStart + AnimationConfig.identity.mergeAfterExtraction)
+  schedulePhase('resolve', extractionStart + AnimationConfig.identity.resolveAfterExtraction)
+  timers.push(window.setTimeout(
+    finishAnimation,
+    extractionStart + AnimationConfig.identity.finishAfterExtraction,
+  ))
 })
 
 onBeforeUnmount(() => {
@@ -213,11 +219,11 @@ onBeforeUnmount(() => {
       <DragWord text="Have" :delay="-0.2" />
       <DragWord text="your" :delay="-1.1" />
       <DragWord ref="sourceFun" text="fun" :delay="-2.3" class="identity__source identity__source--fun" />
-      <span class="identity__punctuation">,</span>
+      <DragWord text="," :delay="-0.5" class="identity__punctuation" />
       <DragWord text="get" :delay="-0.7" />
       <DragWord text="your" :delay="-1.8" />
       <DragWord ref="sourceRest" text="rest" :delay="-2.8" class="identity__source identity__source--rest" />
-      <span class="identity__punctuation">,</span>
+      <DragWord text="," :delay="-1.2" class="identity__punctuation" />
       <DragWord text="be" :delay="-0.4" />
       <DragWord ref="sourceAn" text="an" :delay="-2.1" class="identity__source identity__source--an" />
       <DragWord text="original" :delay="-1.4" />
@@ -297,8 +303,8 @@ onBeforeUnmount(() => {
     opacity 300ms ease;
 }
 
-[data-phase="extract"] .identity__source,
-[data-phase="merge"] .identity__source {
+[data-phase="illuminate"] .identity__source,
+[data-phase="extract"] .identity__source {
   color: rgb(15 111 190);
   filter: drop-shadow(0 0 7px rgb(68 171 255 / 42%));
 }
@@ -374,15 +380,14 @@ onBeforeUnmount(() => {
 }
 
 .identity__part :deep(.drag-word__visual) {
-  padding: 0.12rem 0.42rem 0.2rem;
-  border: 1px solid rgb(126 192 245 / 32%);
-  border-radius: 999px;
-  background: rgb(231 246 255 / 50%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
+  padding: 0.12rem 0 0.2rem;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   transition:
     padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 280ms ease,
-    background-color 280ms ease;
+    opacity 220ms ease,
+    filter 260ms ease;
 }
 
 [data-phase="merge"] .identity__parts,
@@ -398,8 +403,6 @@ onBeforeUnmount(() => {
 [data-phase="merge"] .identity__part :deep(.drag-word__visual),
 [data-phase="resolve"] .identity__part :deep(.drag-word__visual) {
   padding-inline: 0;
-  border-color: transparent;
-  background: transparent;
 }
 
 [data-phase="resolve"] .identity__parts {
@@ -451,15 +454,14 @@ onBeforeUnmount(() => {
     --identity-muted: rgb(209 213 219);
   }
 
-  [data-phase="extract"] .identity__source,
-  [data-phase="merge"] .identity__source {
+  [data-phase="illuminate"] .identity__source,
+  [data-phase="extract"] .identity__source {
     color: rgb(132 204 255);
   }
 
   .identity__part :deep(.drag-word__visual) {
-    border-color: rgb(118 191 246 / 26%);
-    background: rgb(18 58 90 / 45%);
-    box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+    background: transparent;
+    box-shadow: none;
   }
 
 

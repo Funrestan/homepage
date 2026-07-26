@@ -5,7 +5,9 @@ import AuthorInfo from './configs/author.json';
 import { Icon } from '@iconify/vue'
 import AnimatedIdentity from './components/AnimatedIdentity.vue';
 import BackgroundInfo from './components/BackgroundInfo.vue';
+import HitokotoTokens from './components/HitokotoTokens.vue';
 import PhysicsItem from './components/PhysicsItem.vue';
+import AnimationConfig from './configs/animation.json';
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 // set background
 var defaultBackground = `url(${SiteConfig['background-img']})`;
@@ -20,15 +22,23 @@ const hitokotoFrom = ref('');
 const hitokotoReady = ref(false);
 const showHitokoto = ref(false);
 const entranceComplete = ref(false);
+const hitokotoVersion = ref(0);
 const entranceAnimations: Animation[] = [];
 
 type ElementHandle = {
   getElement: () => HTMLElement | null
 }
 
+type HitokotoHandle = {
+  beginRefresh: () => void
+  cancelRefresh: () => void
+}
+
 const avatarItem = ref<ElementHandle | null>(null);
 const identityItem = ref<ElementHandle | null>(null);
+const hitokotoItem = ref<HitokotoHandle | null>(null);
 let refreshTimer: number | null = null;
+let hitokotoRefreshing = false;
 const setCurrentTheme = () => {
   const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   usingDarkBackground.value = isDarkMode && darkBackground.length > 5; // url() is 5 characters
@@ -43,23 +53,29 @@ const fetchHitokoto = async () => {
     const source = data.from || '';
 
     if (content.length > 0 && source.length > 0) {
-      hitokotoText.value = `「${content}」`;
-      hitokotoFrom.value = `—— ${source}`;
+      hitokotoText.value = content;
+      hitokotoFrom.value = source;
+      hitokotoVersion.value += 1;
       hitokotoReady.value = true;
       if (entranceComplete.value) showHitokoto.value = true;
+      return true;
     }
   } catch {
     hitokotoReady.value = false;
   }
+  return false;
 }
 
 const refreshHitokoto = () => {
-  if (!entranceComplete.value) return;
-  showHitokoto.value = false;
+  if (!entranceComplete.value || hitokotoRefreshing) return;
+  hitokotoRefreshing = true;
+  hitokotoItem.value?.beginRefresh();
   if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-  refreshTimer = window.setTimeout(() => {
-    void fetchHitokoto();
-  }, 360);
+  refreshTimer = window.setTimeout(async () => {
+    const updated = await fetchHitokoto();
+    if (!updated) hitokotoItem.value?.cancelRefresh();
+    hitokotoRefreshing = false;
+  }, AnimationConfig.hitokoto.refreshRequestDelay);
 }
 
 const revealHitokoto = () => {
@@ -82,7 +98,6 @@ const runEntranceAnimation = async () => {
   const links = profileLinks.value;
   if (!panel || !avatarRoot || !avatarVisual || !identity || !links) return;
 
-  const panelRect = panel.getBoundingClientRect();
   const avatarRect = avatarRoot.getBoundingClientRect();
   const nameRect = identity.querySelector<HTMLElement>('.identity__name')?.getBoundingClientRect();
   if (!nameRect) return;
@@ -104,13 +119,14 @@ const runEntranceAnimation = async () => {
     ...bioTargets.map((target) => ({ ...target, kind: 'bio' as const })),
     ...linkTargets.map((target) => ({ ...target, kind: 'link' as const })),
   ];
-  const avatarDelay = 620;
-  const dealStart = 1450;
-  const dealCadence = 52;
-  const compositionStart = 3000;
-  const avatarEnd = 3380;
+  const entrance = AnimationConfig.entrance;
+  const avatarDelay = entrance.avatarDelay;
+  const dealStart = entrance.dealStart;
+  const dealCadence = entrance.dealCadence;
+  const compositionStart = entrance.compositionStart;
+  const avatarEnd = entrance.avatarEnd;
   const avatarDuration = avatarEnd - avatarDelay;
-  const steppedTravel = 0.58;
+  const steppedTravel = entrance.steppedTravel;
   const avatarTransform = (progress: number, scale = 1) => {
     const remaining = 1 - progress;
     return `translate3d(${avatarOffsetX * remaining}px, ${avatarOffsetY * remaining}px, 0) scale(${scale})`;
@@ -125,7 +141,7 @@ const runEntranceAnimation = async () => {
       easing: 'cubic-bezier(0.2, 0.82, 0.22, 1)',
     },
     {
-      offset: avatarOffsetAt(1200),
+      offset: avatarOffsetAt(entrance.avatarFadeEnd),
       opacity: 1,
       filter: 'blur(0)',
       transform: avatarTransform(0),
@@ -180,7 +196,7 @@ const runEntranceAnimation = async () => {
     { opacity: 0.18, filter: 'blur(16px)', transform: 'translate3d(-104%, 0, 0)' },
     { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0)' },
   ], {
-    duration: fullWidthPanel ? 1100 : 920,
+    duration: fullWidthPanel ? entrance.panelFullscreenDuration : entrance.panelDesktopDuration,
     easing: 'cubic-bezier(0.18, 0.82, 0.22, 1)',
     fill: 'backwards',
   }));
@@ -218,7 +234,7 @@ const runEntranceAnimation = async () => {
       },
       { opacity: 1, filter: 'blur(0)', transform: 'translate3d(0, 0, 0) rotate(0) scale(1)' },
     ], {
-      duration: 500,
+      duration: entrance.dealDuration,
       delay: dealStart + index * dealCadence,
       easing: 'cubic-bezier(0.17, 0.86, 0.2, 1)',
       fill: 'backwards',
@@ -271,7 +287,12 @@ onBeforeUnmount(() => {
         <img :src="AuthorInfo.avatar" alt="avatar" draggable="false"
           class="profile-avatar h-40 w-40 rounded-full shadow-xl">
       </PhysicsItem>
-      <AnimatedIdentity ref="identityItem" :name="AuthorInfo.name" :start-delay="3000" @complete="revealHitokoto" />
+      <AnimatedIdentity
+        ref="identityItem"
+        :name="AuthorInfo.name"
+        :start-delay="AnimationConfig.entrance.compositionStart"
+        @complete="revealHitokoto"
+      />
       <!-- 一言 -->
       <div
         v-if="SiteConfig.hitokoto.enable"
@@ -279,8 +300,13 @@ onBeforeUnmount(() => {
         :class="{ 'is-visible': showHitokoto }"
         @click="refreshHitokoto"
       >
-        <h1 class="text-sm text-gray-600 dark:text-gray-300">{{ hitokotoText || '\u00a0' }}</h1>
-        <h1 class="text-sm text-gray-600 dark:text-gray-300 text-right">{{ hitokotoFrom || '\u00a0' }}</h1>
+        <HitokotoTokens
+          ref="hitokotoItem"
+          :text="hitokotoText"
+          :source="hitokotoFrom"
+          :version="hitokotoVersion"
+          :active="showHitokoto"
+        />
       </div>
       <div ref="profileLinks" class="profile-links flex text-2xl gap-2">
         <PhysicsItem
@@ -366,7 +392,7 @@ onBeforeUnmount(() => {
 }
 
 .hitokoto-shell.is-visible {
-  max-height: 3rem;
+  max-height: 6rem;
   margin-top: 0.1rem;
   opacity: 1;
   visibility: visible;

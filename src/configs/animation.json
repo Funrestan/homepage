@@ -1,0 +1,33 @@
+{
+  "entrance": {
+    "panelDesktopDuration": 920,
+    "panelFullscreenDuration": 1100,
+    "avatarDelay": 620,
+    "avatarFadeEnd": 1200,
+    "dealStart": 1450,
+    "dealCadence": 52,
+    "dealDuration": 500,
+    "compositionStart": 3000,
+    "avatarEnd": 3380,
+    "steppedTravel": 0.58
+  },
+  "identity": {
+    "glowLead": 380,
+    "copyDuration": 520,
+    "copyStagger": 35,
+    "mergeAfterExtraction": 480,
+    "resolveAfterExtraction": 840,
+    "finishAfterExtraction": 1170,
+    "placementDuration": 520,
+    "placementStagger": 35,
+    "completeAfterPlacement": 580
+  },
+  "hitokoto": {
+    "refreshRequestDelay": 180,
+    "refreshGap": 150,
+    "collectCadence": 30,
+    "collectDuration": 380,
+    "dealCadence": 38,
+    "dealDuration": 440
+  }
+}
