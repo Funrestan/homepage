@@ -21,7 +21,6 @@ const {
   dragging,
   dragVisualActive,
   pointerDown,
-  pointerMove,
   pointerUp,
   clickCapture,
 } = useSoftPhysics({
@@ -42,7 +41,6 @@ defineExpose({
     class="soft-physics-item physics-item"
     :class="[`physics-item--${props.shape}`, { 'is-dragging': dragging, 'is-drag-active': dragVisualActive }]"
     @pointerdown="pointerDown"
-    @pointermove="pointerMove"
     @pointerup="pointerUp"
     @pointercancel="pointerUp"
     @lostpointercapture="pointerUp"

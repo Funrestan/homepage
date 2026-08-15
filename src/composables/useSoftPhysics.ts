@@ -45,8 +45,14 @@ type PhysicsWave = {
   touched: Set<number>
 }
 
+type ActivePointerHandler = {
+  move: (event: PointerEvent) => void
+  release: (event: PointerEvent) => void
+}
+
 const particles = new Map<number, Particle>()
 const waves: PhysicsWave[] = []
+const activePointerHandlers = new Map<number, ActivePointerHandler>()
 
 export const SOFT_PHYSICS_TIMER_START_EVENT = 'soft-physics:return-timer-start'
 export const SOFT_PHYSICS_TIMER_COMPLETE_EVENT = 'soft-physics:return-timer-complete'
@@ -601,6 +607,14 @@ function handleGlobalPointerDown(event: PointerEvent) {
   disturbField(null, event.clientX, event.clientY, PhysicsConfig.wave.idleClickSpeed)
 }
 
+function handleGlobalPointerMove(event: PointerEvent) {
+  activePointerHandlers.get(event.pointerId)?.move(event)
+}
+
+function handleGlobalPointerRelease(event: PointerEvent) {
+  activePointerHandlers.get(event.pointerId)?.release(event)
+}
+
 export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   const elementRef: Ref<HTMLElement | null> = ref(null)
   const dragging = ref(false)
@@ -662,22 +676,26 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     particles.set(particle.id, particle)
     if (!globalPointerListenerActive) {
       document.addEventListener('pointerdown', handleGlobalPointerDown, { passive: true })
+      window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true })
+      window.addEventListener('pointerup', handleGlobalPointerRelease, { passive: true })
+      window.addEventListener('pointercancel', handleGlobalPointerRelease, { passive: true })
       globalPointerListenerActive = true
     }
     paintParticle(particle)
     ensureEngine()
-    window.addEventListener('pointerup', pointerUp, { passive: true })
-    window.addEventListener('pointercancel', pointerUp, { passive: true })
   })
 
   onBeforeUnmount(() => {
-    window.removeEventListener('pointerup', pointerUp)
-    window.removeEventListener('pointercancel', pointerUp)
+    if (activePointer !== null) activePointerHandlers.delete(activePointer)
     if (!particle) return
     particles.delete(particle.id)
     particle = null
     if (particles.size === 0 && globalPointerListenerActive) {
       document.removeEventListener('pointerdown', handleGlobalPointerDown)
+      window.removeEventListener('pointermove', handleGlobalPointerMove)
+      window.removeEventListener('pointerup', handleGlobalPointerRelease)
+      window.removeEventListener('pointercancel', handleGlobalPointerRelease)
+      activePointerHandlers.clear()
       globalPointerListenerActive = false
     }
   })
@@ -690,6 +708,10 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     ) return
 
     activePointer = event.pointerId
+    activePointerHandlers.set(event.pointerId, {
+      move: pointerMove,
+      release: pointerUp,
+    })
     pointerStartX = event.clientX
     pointerStartY = event.clientY
     particleStartX = particle.x
@@ -780,6 +802,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
 
     const pointerId = activePointer
     activePointer = null
+    activePointerHandlers.delete(pointerId)
     if (particle.element.hasPointerCapture(pointerId)) {
       particle.element.releasePointerCapture(pointerId)
     }
@@ -812,7 +835,6 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     dragging,
     dragVisualActive,
     pointerDown,
-    pointerMove,
     pointerUp,
     clickCapture,
   }

@@ -61,8 +61,8 @@ const toggleTheme = () => {
 }
 
 const themeToggleLabel = computed(() => usingDarkBackground.value
-  ? UiConfig.themeToggle.switchToLightLabel
-  : UiConfig.themeToggle.switchToDarkLabel)
+  ? `Switch to ${UiConfig.themeToggle.lightTooltip} theme`
+  : `Switch to ${UiConfig.themeToggle.darkTooltip} theme`)
 const themeToggleTooltip = computed(() => usingDarkBackground.value
   ? UiConfig.themeToggle.lightTooltip
   : UiConfig.themeToggle.darkTooltip)

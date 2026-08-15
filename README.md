@@ -1,6 +1,8 @@
-# neohome
+# FunreHome
 
-This template should help get you started developing with Vue 3 in Vite.
+> **Based on** [neokoni/homepage](https://github.com/neokoni/homepage)
+
+This template should help you get started developing with Vue 3 in Vite.
 
 ## Recommended IDE Setup
 

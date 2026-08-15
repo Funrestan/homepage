@@ -25,7 +25,6 @@ const {
   dragging,
   dragVisualActive,
   pointerDown,
-  pointerMove,
   pointerUp,
   clickCapture,
 } = useSoftPhysics({
@@ -49,7 +48,6 @@ defineExpose({
     :style="{ '--float-delay': `${props.delay}s` }"
     :data-word="props.text || undefined"
     @pointerdown="pointerDown"
-    @pointermove="pointerMove"
     @pointerup="pointerUp"
     @pointercancel="pointerUp"
     @lostpointercapture="pointerUp"
