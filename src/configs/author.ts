@@ -7,7 +7,7 @@ export type AuthorLink = {
   name: string // 名称（也是悬浮提示文字与 v-for 的 key）
   url: string // 跳转地址；写给 donate 用的占位可以填 '#'
   icon: string // Iconify 图标名
-  action?: string // 特殊行为：'donate' 表示不跳转，而是展开右侧内容块
+  action?: string // 特殊行为：'donate' = 展开右侧内容块；'friends' = 图标自己飞到右侧上半场并放大
   defaultColor?: string // 图标默认颜色，留空用 currentColor
   hoverColor?: string // 悬浮时的图标颜色
 }
@@ -44,8 +44,9 @@ const author = {
     },
     {
       name: 'FriendLinks',
-      url: '#', // 待填：友链地址
+      url: '#', // 待填：友链地址（当前由 friends.ts 接管：点击是"飞出 + 放大"，不是跳转）
       icon: 'zondicons:link',
+      action: 'friends', // 触发友链飞出效果的关键（见 configs/friends.ts）
     },
     {
       name: 'Donate',

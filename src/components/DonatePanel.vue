@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref } from 'vue'
 import AnimationConfig from '../configs/animation'
 import DonateConfig from '../configs/donate'
 import PhysicsConfig from '../configs/physics'
 import PhysicsItem from './PhysicsItem.vue'
-import { findDonateLink } from '../composables/donateLink'
+import { findDonateLink } from '../composables/profileLink'
 import { sampleDampedSpring } from '../composables/dampedSpring'
 import {
+  launchSoftPhysicsSweep,
   setSoftPhysicsFree,
   triggerSoftPhysicsSourceRipple,
 } from '../composables/useSoftPhysics'
@@ -364,6 +365,27 @@ const openPanel = async (momentum: Momentum, center: Point) => {
   const root = panelRoot.value
   if (!root) return
 
+  // 扫掠击飞：面板是"从中心弹开"的简化动画，撞不出真实扫掠的击飞感，
+  // 所以对"出发点 → 终点矩形四角"那块楔形区域里的元素做一次定向击飞。
+  // 这里用布局尺寸（offsetWidth/Height）量终点矩形——此刻它还被起始缩放压得很小。
+  const knock = donate.sweepKnock
+  if (knock.enable) {
+    const width = root.offsetWidth
+    const height = root.offsetHeight
+    if (width > 0 && height > 0) {
+      const origin = {
+        x: center.x - momentum.x * momentum.distance,
+        y: center.y - momentum.y * momentum.distance,
+      }
+      launchSoftPhysicsSweep(origin, {
+        left: center.x - width / 2,
+        top: center.y - height / 2,
+        right: center.x + width / 2,
+        bottom: center.y + height / 2,
+      }, knock)
+    }
+  }
+
   const spring = donate.panelSpring
   const travel = Math.min(donate.panelTravel, momentum.distance * donate.panelTravelDistanceRatio)
   const omega = 2 * Math.PI * spring.frequency
@@ -532,17 +554,9 @@ const hideFlight = () => {
   flightVisible.value = false
 }
 
-const handleKeydown = (event: KeyboardEvent) => {
-  if (event.key !== 'Escape' || !interactive.value) return
-  emit('close')
-}
-
-onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
-})
-
+// Esc 现在由 App.vue 统一管：右侧可能同时开着友链与礼物面板，
+// 需要"只关最后打开的那一个"，两个组件各听一次 Esc 会一次全关掉。
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleKeydown)
   endScatter()
 })
 
