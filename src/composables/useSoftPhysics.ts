@@ -83,6 +83,31 @@ const particles = new Map<number, Particle>()
 const waves: PhysicsWave[] = []
 const activePointerHandlers = new Map<number, ActivePointerHandler>()
 
+/**
+ * 波纹订阅：给"不在物理场里、但也该被冲击波推动"的自由物体用（例如友链的开发者小球）。
+ * 引擎每次产生波纹时广播一次，订阅方自己去算波前扩散与衰减。
+ */
+export type SoftPhysicsWave = {
+  x: number
+  y: number
+  force: number
+  radiusScale: number
+  radialScale: number
+  depthScale: number
+  startsAt: number
+}
+
+const waveListeners = new Set<(wave: SoftPhysicsWave) => void>()
+
+export const onSoftPhysicsWave = (listener: (wave: SoftPhysicsWave) => void) => {
+  waveListeners.add(listener)
+  return () => { waveListeners.delete(listener) }
+}
+
+const broadcastWave = (wave: SoftPhysicsWave) => {
+  waveListeners.forEach((listener) => listener(wave))
+}
+
 export const SOFT_PHYSICS_TIMER_START_EVENT = 'soft-physics:return-timer-start'
 export const SOFT_PHYSICS_TIMER_COMPLETE_EVENT = 'soft-physics:return-timer-complete'
 
@@ -650,6 +675,16 @@ function disturbField(
     touched: new Set<number>(),
   })
 
+  broadcastWave({
+    x: clientX,
+    y: clientY,
+    force: strength,
+    radiusScale,
+    radialScale: Math.max(0, options.radialScale ?? 1),
+    depthScale: Math.max(0, options.depthScale ?? 1),
+    startsAt: performance.now(),
+  })
+
   if (showRipple) {
     const visualRangeScale = Math.max(0.2, options.visualRangeScale ?? radiusScale)
     createRipple(
@@ -697,6 +732,161 @@ export const triggerSoftPhysicsSourceRipple = (
 /** 自由场开关：开启后所有元素停止归位，只受惯性与波纹影响。 */
 export const setSoftPhysicsFree = (free: boolean) => {
   fieldFree = free
+}
+
+export type SoftPhysicsSweepOptions = {
+  /** 瞬间速度大小（每帧量）：调大就是"击飞" */
+  speed: number
+  /** 侧向散开比例：0 = 全部严格沿运动方向，1 = 侧向也能分到同样的速度（会散成扇形） */
+  spread?: number
+  /** 碰撞免疫时长（ms）：这段时间内元素之间不再互相碰撞 = 允许穿模 */
+  immunity?: number
+  /** 免疫结束后再飞多久才开始归位（ms）：让它先飞完那一段 */
+  flightDuration?: number
+  /** 力度按 influence/mass 折算时的总系数 */
+  influenceScale?: number
+  /**
+   * 排除的选择器：命中的元素**不参与这次击飞**。
+   * 默认排除 `.donate-panel-host`——终点矩形中心就是面板自己，
+   * 按几何判定它当然落在楔形区里，但它是"扫过去的那个东西"，不能给自己加初速。
+   */
+  ignoreSelector?: string
+}
+
+/** 一次扫掠击飞的完整描述：不在物理场里的自由物体（例如友链的开发者小球）据此自己吃这一下 */
+export type SoftPhysicsSweep = {
+  from: { x: number; y: number }
+  rect: { left: number; top: number; right: number; bottom: number }
+  /** 运动方向（单位向量） */
+  direction: { x: number; y: number }
+  speed: number
+  spread: number
+  immunity: number
+  flightDuration: number
+  influenceScale: number
+  ignoreSelector: string
+  /** 楔形区判定：给外部物体自己测自己在不在里面 */
+  contains: (x: number, y: number) => boolean
+}
+
+const sweepListeners = new Set<(sweep: SoftPhysicsSweep) => void>()
+
+/** 订阅扫掠击飞（给不在物理场里的自由物体用） */
+export const onSoftPhysicsSweep = (listener: (sweep: SoftPhysicsSweep) => void) => {
+  sweepListeners.add(listener)
+  return () => { sweepListeners.delete(listener) }
+}
+
+const pointInTriangle = (
+  point: { x: number; y: number },
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+) => {
+  const sign = (p1: typeof point, p2: typeof point, p3: typeof point) =>
+    (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y)
+  const d1 = sign(point, a, b)
+  const d2 = sign(point, b, c)
+  const d3 = sign(point, c, a)
+  const hasNegative = d1 < 0 || d2 < 0 || d3 < 0
+  const hasPositive = d1 > 0 || d2 > 0 || d3 > 0
+  return !(hasNegative && hasPositive)
+}
+
+/**
+ * **扫掠击飞**：把"出发点 → 终点矩形四角"围出来的那块楔形区域里的元素，
+ * 沿"出发点 → 终点矩形中心"的方向甩出去，并给它们一小段碰撞免疫（允许穿模）。
+ *
+ * 用来给"从中心弹开"这类**简化动画**补一个真实扫掠才有的击飞感：
+ * 面板本体不是真的从起点扫过去的，光靠碰撞算不出该有的冲量。
+ */
+export const launchSoftPhysicsSweep = (
+  from: { x: number; y: number },
+  rect: { left: number; top: number; right: number; bottom: number },
+  options: SoftPhysicsSweepOptions,
+) => {
+  const speed = Math.max(0, options.speed)
+  if (speed <= 0) return 0
+  const spread = Math.max(0, options.spread ?? 0)
+  const immunity = Math.max(0, options.immunity ?? 0)
+  const flightDuration = Math.max(0, options.flightDuration ?? 0)
+  const influenceScale = Math.max(0, options.influenceScale ?? 1)
+  const ignoreSelector = options.ignoreSelector ?? '.donate-panel-host'
+
+  const centerX = (rect.left + rect.right) / 2
+  const centerY = (rect.top + rect.bottom) / 2
+  const dx = centerX - from.x
+  const dy = centerY - from.y
+  const length = Math.hypot(dx, dy)
+  const ux = length > 0.001 ? dx / length : 1
+  const uy = length > 0.001 ? dy / length : 0
+  const perpX = -uy
+  const perpY = ux
+
+  const corners = [
+    { x: rect.left, y: rect.top },
+    { x: rect.right, y: rect.top },
+    { x: rect.right, y: rect.bottom },
+    { x: rect.left, y: rect.bottom },
+  ]
+  const inSweep = (x: number, y: number) => {
+    const point = { x, y }
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return true
+    // 出发点可能在矩形内也可能在外：用"出发点到每条边"的三角形铺满整块楔形区
+    for (let index = 0; index < corners.length; index += 1) {
+      const a = corners[index]
+      const b = corners[(index + 1) % corners.length]
+      if (!a || !b) continue
+      if (pointInTriangle(point, from, a, b)) return true
+    }
+    return false
+  }
+
+  const now = performance.now()
+  let hit = 0
+  for (const particle of particles.values()) {
+    // 用户正拖着的不动它（跟手优先）
+    if (particle.dragging) continue
+    // 被排除的元素（默认是 Donate 面板自己）：只给"别人"加初速，扫过去那个东西不加
+    if (ignoreSelector && particle.element.matches(ignoreSelector)) continue
+    const particleRect = particle.element.getBoundingClientRect()
+    const x = particleRect.left + particleRect.width / 2
+    const y = particleRect.top + particleRect.height / 2
+    if (!inSweep(x, y)) continue
+
+    const weight = influenceScale * particle.influence / Math.max(0.2, particle.mass)
+    const side = (Math.random() * 2 - 1) * spread * speed
+    particle.vx += (ux * speed + perpX * side) * weight
+    particle.vy += (uy * speed + perpY * side) * weight
+    particle.cooldownUntil = Math.max(
+      particle.cooldownUntil,
+      now + immunity + flightDuration,
+    )
+    // 免疫窗口：这段时间不参与元素间碰撞（允许穿模），过去之后照常连锁
+    particle.collisionImmuneUntil = Math.max(particle.collisionImmuneUntil, now + immunity)
+    particle.collisionActiveUntil = Math.max(particle.collisionActiveUntil, now + immunity)
+    // 顺手给一下冲击压缩，看着像"被拍了一下"
+    particle.compression = Math.max(particle.compression, PhysicsConfig.collision.minimumImpact * 2)
+    hit += 1
+  }
+
+  // 广播给"不在物理场里"的自由物体（开发者小球），让它们吃同一下
+  if (sweepListeners.size > 0) {
+    const sweep: SoftPhysicsSweep = {
+      from: { x: from.x, y: from.y },
+      rect: { ...rect },
+      direction: { x: ux, y: uy },
+      speed,
+      spread,
+      immunity,
+      flightDuration,
+      influenceScale,
+      ignoreSelector,
+      contains: inSweep,
+    }
+    sweepListeners.forEach((listener) => listener(sweep))
+  }
+  return hit
 }
 
 export type SoftPhysicsSettleOptions = {
