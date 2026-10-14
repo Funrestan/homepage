@@ -17,6 +17,10 @@ export type DeveloperOrb = {
   avatar: string // 头像地址
   /** 大小倍数：0–2 的浮点数（1 = 基准大小）；不写就用 defaultSizeScale */
   sizeScale?: number
+  /** 是否给他戴皇冠头饰：戴上之后球上多一顶皇冠，并且整颗球有一圈环绕光效 */
+  crown?: boolean
+  /** 皇冠专属的"特殊描述"：写了就在名片里多显示一条（比 info 更醒目），留空则不显示 */
+  crownInfo?: string
 }
 
 const developers = {
@@ -36,8 +40,51 @@ const developers = {
       url: 'https://www.neokoni.ink/',
       avatar: 'https://avatars.githubusercontent.com/u/90206655?v=4',
       sizeScale: 1, // 基准大小
+      crown: true, // 改成 true 就给他戴皇冠（球上多一顶 + 整颗球一圈环绕光效）
+      crownInfo: '', // 皇冠专属的特殊描述
     },
   ] as DeveloperOrb[],
+
+  // ═══════════ 皇冠头饰 + 环绕光效（给 orbs 里 crown: true 的那些） ═══════════
+  crown: {
+    enable: true, // 总开关：关掉后 crown: true 的条目只剩环绕光效、不画皇冠
+    icon: 'tabler:crown-filled', // 皇冠图标（Iconify 名；必须真实存在，写错会静默不显示——mingcute 没有 crown）
+    // 可替换：'tabler:crown'（描边款）、'mingcute:vip-1-fill'（改成 VIP 绶带）
+    sizeRatio: 0.46, // 皇冠宽度 = 小球直径 × 该比例
+    offsetYRatio: -0.42, // 皇冠中心相对小球中心的上移距离 = 直径 × 该比例（负 = 往上，让它"戴"在球顶上）
+    tilt: -14, // 倾斜角度（度）：稍微歪一点更像"戴"着
+    color: '#f7c948', // 皇冠主色（金）
+    highlightColor: '#fff3c4', // 皇冠高光（沿上沿勾一道亮边）
+    shadow: 'drop-shadow(0 3px 6px rgba(90, 58, 6, 0.5))', // 皇冠投影
+    glow: 'drop-shadow(0 0 6px rgba(255, 214, 120, 0.85))', // 皇冠自带的一圈光晕
+
+    // 环绕光效：一圈围着球转的金色光环（不是静态描边，是缓慢自转的）
+    ring: {
+      enable: true, // 关掉就只剩皇冠本身
+      inset: -7, // 光环相对小球边缘向外扩多少（px）
+      width: 3, // 光环粗细（px）
+      colorA: 'rgba(255, 226, 150, 0.95)', // 亮段
+      colorB: 'rgba(255, 190, 70, 0.15)', // 暗段（转起来才有明暗流动感）
+      duration: 5200, // 转一圈的时长（ms）
+      reverse: false, // true = 反向转
+      glow: '0 0 14px rgba(255, 205, 110, 0.55)', // 光环外发光
+    },
+
+    // 停住时的呼吸（和友链球那圈辐射错开节奏，不抢戏）
+    breathe: {
+      enable: true, // false = 光环恒亮不呼吸
+      duration: 2600, // 呼吸一圈（ms）
+      minimumOpacity: 0.65, // 最暗时的透明度
+    },
+
+    // 名片里的特殊描述
+    card: {
+      color: '#b7791f', // 特殊描述的文字颜色（亮色主题）
+      darkColor: '#f5cd6d', // 特殊描述的文字颜色（暗色主题）
+      background: 'rgba(255, 214, 120, 0.22)', // 特殊描述那条的背景
+      border: 'rgba(255, 205, 110, 0.5)', // 特殊描述那条的描边
+    },
+  },
 
   // ═══════════ 重力与磁力 ═══════════
   physics: {
@@ -132,7 +179,9 @@ const developers = {
     pullBonus: 0.12, // 距离越远额外增加的拉力上限（拉得远时更黏手）
     pullDistance: 420, // 距离达到它时吃满额外拉力（px）
     damping: 0.78, // 拖动过程中的速度阻尼（每帧保留比例）
-    releaseRetention: 0.9, // 松手时保留的速度比例（惯性大小）
+    releaseRetention: 0.9, // 松手时**继承指针速度**的保留比例（惯性大小）
+    velocitySmoothing: 0.6, // 指针速度的指数平滑系数：0 = 只看最后一帧（会抖），越大越平
+    maxReleaseSpeed: 36, // 松手继承速度的上限（每帧量）：防止一次极快的甩动把球射飞
     clickMaxMove: 6, // 位移小于它才算"点一下"（弹名片，px）
     clickMaxTime: 420, // 按下时长小于它才算"点一下"（ms）
   },

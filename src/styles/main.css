@@ -79,8 +79,9 @@ body::after {
 }
 
 /* 窄屏下被内容块崩飞过的元素：慢淡出隐形，且不归位（自由场由 setSoftPhysicsFree 控制）。
-   内容块自己（.donate-panel-host）不参与隐形。 */
-html.donate-scatter .soft-physics-item:not(.donate-panel-host) {
+   内容块自己（.donate-panel-host）不参与隐形；友链球（.friend-avatar-host）也不参与——
+   它是"磁铁"，面板打开时它得留在场上，玩家才看得见自己那堆小球被谁吸着。 */
+html.donate-scatter .soft-physics-item:not(.donate-panel-host):not(.friend-avatar-host) {
     opacity: 0;
     pointer-events: none;
     transition-duration: var(--donate-scatter-fade-out, 700ms);

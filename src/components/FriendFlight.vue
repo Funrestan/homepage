@@ -140,6 +140,9 @@ const openFrom = async (origin: Point, target: Point, keepOutTop: number | null 
     const maxY = keepOutTop - friends.avoid.gap - size / 2
     if (landing.y > maxY) landing = { x: landing.x, y: maxY }
   }
+  // 上边距兜底：窄屏视口矮的时候 0.2 × 高度仍可能贴到最上边
+  const minY = friends.target.topMargin + size / 2
+  if (landing.y < minY) landing = { x: landing.x, y: minY }
   baseY = landing.y
   anchorStyle.value = {
     left: `${(landing.x - size / 2).toFixed(2)}px`,
@@ -344,7 +347,7 @@ defineExpose({ openFrom, closeTo, hideFlight, setKeepOutTop, getMagnet })
           class="friend-avatar-host"
           :class="{ 'is-interactive': interactive }"
           :mass="PhysicsConfig.presets.link.mass"
-          :influence="PhysicsConfig.presets.link.influence"
+          :influence="FriendsConfig.entity.influence"
           :cooldown="PhysicsConfig.presets.link.cooldown"
           :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
           shape="round"

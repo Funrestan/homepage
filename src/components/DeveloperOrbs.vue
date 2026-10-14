@@ -54,6 +54,21 @@ const cardHeight = ref(190)
 
 const visual = DeveloperConfig.visual
 const card = DeveloperConfig.card
+const crown = DeveloperConfig.crown
+
+/** 皇冠/特殊描述用到的主题色变量：容器与名片是两棵独立的树，所以两边都要下发 */
+const crownVars = computed(() => ({
+  '--dev-crown-color': crown.color,
+  '--dev-crown-highlight': crown.highlightColor,
+  '--dev-crown-glow': crown.glow,
+  '--dev-crown-shadow': crown.shadow,
+  '--dev-special-color': crown.card.color,
+  '--dev-special-color-dark': crown.card.darkColor,
+  '--dev-special-bg': crown.card.background,
+  '--dev-special-border': crown.card.border,
+  '--dev-crown-breathe-duration': `${crown.breathe.duration}ms`,
+  '--dev-crown-breathe-min': String(crown.breathe.minimumOpacity),
+}))
 
 /**
  * 名片位置：朝**远离友链球**的那一侧弹（小球通常聚在友链球下方，所以默认弹在它下方，
@@ -222,6 +237,7 @@ defineExpose({ begin, release, closeCard })
         '--dev-shadow': visual.shadow,
         '--dev-glow': visual.glowColor,
         '--dev-glow-duration': `${visual.glowDuration}ms`,
+        ...crownVars,
       }"
     >
       <button
@@ -241,7 +257,39 @@ defineExpose({ begin, release, closeCard })
         @pointerdown="handleOrbPointerDown(orb, $event)"
         @contextmenu.prevent
       >
+        <!-- 环绕光效：一圈缓慢自转的金色光环（只给戴皇冠的那位） -->
+        <span
+          v-if="orb.crown && crown.ring.enable"
+          class="dev-orb__ring"
+          aria-hidden="true"
+          :style="{
+            inset: `${crown.ring.inset}px`,
+            '--dev-crown-ring-width': `${crown.ring.width}px`,
+            '--dev-crown-ring-a': crown.ring.colorA,
+            '--dev-crown-ring-b': crown.ring.colorB,
+            '--dev-crown-ring-duration': `${crown.ring.duration}ms`,
+            '--dev-crown-ring-direction': crown.ring.reverse ? 'reverse' : 'normal',
+            '--dev-crown-ring-glow': crown.ring.glow,
+          }"
+        />
         <img class="dev-orb__avatar" :src="orb.avatar" :alt="orb.name" draggable="false" />
+        <!-- 皇冠头饰：贴在小球上沿、稍微歪着戴 -->
+        <span
+          v-if="orb.crown && crown.enable"
+          class="dev-orb__crown"
+          aria-hidden="true"
+          :style="{
+            width: `${orb.diameter * crown.sizeRatio}px`,
+            '--dev-crown-tilt': `${crown.tilt}deg`,
+            '--dev-crown-offset-y': `${orb.diameter * crown.offsetYRatio}px`,
+            '--dev-crown-color': crown.color,
+            '--dev-crown-highlight': crown.highlightColor,
+            '--dev-crown-shadow': crown.shadow,
+            '--dev-crown-glow': crown.glow,
+          }"
+        >
+          <Icon :icon="crown.icon" />
+        </span>
       </button>
     </div>
 
@@ -250,12 +298,17 @@ defineExpose({ begin, release, closeCard })
       <div
         v-if="cardVisible && cardOrb"
         class="dev-card-anchor"
-        :style="{ ...cardStyle, zIndex: card.zIndex }"
+        :style="{ ...cardStyle, zIndex: card.zIndex, ...crownVars }"
       >
         <div ref="cardElement" class="dev-card" role="dialog" :aria-label="cardOrb.name">
           <img class="dev-card__avatar" :src="cardOrb.avatar" :alt="cardOrb.name" draggable="false" />
           <div class="dev-card__body">
             <p class="dev-card__name">{{ cardOrb.name }}</p>
+            <!-- 皇冠专属的特殊描述：写了才显示，单独一条更醒目 -->
+            <p v-if="cardOrb.crownInfo" class="dev-card__special">
+              <Icon :icon="crown.icon" aria-hidden="true" />
+              {{ cardOrb.crownInfo }}
+            </p>
             <p v-if="cardOrb.info" class="dev-card__info">{{ cardOrb.info }}</p>
             <p class="dev-card__host">{{ hostLabel(cardOrb.url) }}</p>
           </div>
@@ -337,6 +390,81 @@ defineExpose({ begin, release, closeCard })
     inset 0 0 0 2px var(--dev-ring),
     var(--dev-shadow);
   transition: transform 220ms cubic-bezier(0.2, 1.3, 0.35, 1);
+}
+
+/* 环绕光效：用 padding + mask 差集抠出一圈，再让 conic-gradient 自转（明暗会流动） */
+.dev-orb__ring {
+  position: absolute;
+  border-radius: 50%;
+  padding: var(--dev-crown-ring-width);
+  box-sizing: border-box;
+  background: conic-gradient(
+    from 0deg,
+    var(--dev-crown-ring-b) 0deg,
+    var(--dev-crown-ring-a) 70deg,
+    var(--dev-crown-ring-b) 150deg,
+    var(--dev-crown-ring-b) 210deg,
+    var(--dev-crown-ring-a) 290deg,
+    var(--dev-crown-ring-b) 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  /* 用 filter 而不是 box-shadow：box-shadow 会被上面的 mask 一起裁掉 */
+  filter: var(--dev-crown-ring-glow);
+  animation: dev-crown-spin var(--dev-crown-ring-duration) linear infinite;
+  animation-direction: var(--dev-crown-ring-direction);
+  pointer-events: none;
+}
+
+/* 停住时的呼吸：和友链球那圈辐射错开节奏 */
+.dev-orb.is-attracted .dev-orb__ring {
+  animation-name: dev-crown-spin, dev-crown-breathe;
+  animation-duration: var(--dev-crown-ring-duration), var(--dev-crown-breathe-duration);
+  animation-timing-function: linear, ease-in-out;
+  animation-iteration-count: infinite, infinite;
+  animation-direction: var(--dev-crown-ring-direction), normal;
+}
+
+/* 皇冠头饰：贴在小球上沿、稍微歪着戴 */
+.dev-orb__crown {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%) translateY(var(--dev-crown-offset-y)) rotate(var(--dev-crown-tilt));
+  color: var(--dev-crown-color);
+  /* 先描一圈光晕，再勾一道上沿高光，最后压投影 */
+  filter: var(--dev-crown-glow) var(--dev-crown-shadow)
+    drop-shadow(0 -1px 0 var(--dev-crown-highlight));
+  pointer-events: none;
+}
+
+.dev-orb__crown :deep(svg) {
+  width: 100%;
+  height: auto;
+}
+
+@keyframes dev-crown-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dev-crown-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: var(--dev-crown-breathe-min);
+  }
 }
 
 /* 被友链球吸住时：边缘一圈缓慢呼吸的微光 */
@@ -425,6 +553,34 @@ defineExpose({ begin, release, closeCard })
   color: rgb(75 85 99);
   /* 配置里 info 写的 \n 要真的换行：HTML 默认会把换行折叠成空格，pre-line 保留换行但照常折行 */
   white-space: pre-line;
+}
+
+/* 皇冠专属的特殊描述：单独一条、金色底 */
+.dev-card__special {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  margin-top: 0.35rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--dev-special-border);
+  background: var(--dev-special-bg);
+  color: var(--dev-special-color);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.dev-card__special :deep(svg) {
+  flex: 0 0 auto;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--dev-crown-color);
+}
+
+:global(html.dark .dev-card__special) {
+  color: var(--dev-special-color-dark);
 }
 
 .dev-card__host {

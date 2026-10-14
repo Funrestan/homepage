@@ -26,6 +26,10 @@ export type DeveloperOrbView = {
   diameter: number
   /** 他自己的大小倍数（0–2 的浮点数） */
   sizeScale: number
+  /** 是否戴皇冠（球上多头饰 + 整颗球一圈环绕光效） */
+  crown: boolean
+  /** 皇冠专属的特殊描述（留空 = 不显示） */
+  crownInfo: string
 }
 
 type OrbState = {
@@ -96,6 +100,12 @@ export const useDeveloperOrbs = (options: {
   let dragTargetY = 0
   let dragMoved = 0
   let dragStartedAt = 0
+  /** 指针自己的速度（每帧量，指数平滑）：松手时小球继承它 */
+  let dragPointerVx = 0
+  let dragPointerVy = 0
+  let dragLastX = 0
+  let dragLastY = 0
+  let dragLastAt = 0
 
   const orbs = new Map<number, OrbState>()
   const elements = new Map<number, HTMLElement>()
@@ -139,6 +149,8 @@ export const useDeveloperOrbs = (options: {
     avatar: orb.avatar,
     diameter: diameterOf(scale),
     sizeScale: scale,
+    crown: orb.crown === true,
+    crownInfo: typeof orb.crownInfo === 'string' ? orb.crownInfo : '',
   })
 
   /** 生成一批：每个开发者一颗，从屏幕外下方升起（x 在友链球左右随机撒开） */
@@ -248,19 +260,39 @@ export const useDeveloperOrbs = (options: {
     dragTargetY = clientY
     dragMoved = 0
     dragStartedAt = performance.now()
+    dragLastX = clientX
+    dragLastY = clientY
+    dragLastAt = dragStartedAt
+    dragPointerVx = 0
+    dragPointerVy = 0
   }
 
-  /** 拖动中：更新指针目标，并累计"移动了多少"（用来区分点一下和拖走） */
+  /**
+   * 拖动中：更新指针目标 + 累计"移动了多少"（区分点一下和拖走），
+   * 同时把**指针自己的速度**平滑出来（松手时小球直接继承它，才有"甩出去"的感觉）。
+   */
   const moveDrag = (clientX: number, clientY: number) => {
     const orb = draggingId.value !== null ? orbs.get(draggingId.value) : null
     if (!orb) return
+    const now = performance.now()
+    const elapsed = Math.max(1, now - dragLastAt)
+    // 换算成"每帧"量（引擎里速度都是 px/帧，1 帧 = 1000/60 ms）
+    const frameVx = (clientX - dragLastX) / elapsed * FIXED_STEP
+    const frameVy = (clientY - dragLastY) / elapsed * FIXED_STEP
+    // 指数平滑：单帧抖动不至于把松手速度带偏
+    const smoothing = DeveloperConfig.drag.velocitySmoothing
+    dragPointerVx = dragPointerVx * smoothing + frameVx * (1 - smoothing)
+    dragPointerVy = dragPointerVy * smoothing + frameVy * (1 - smoothing)
+    dragLastX = clientX
+    dragLastY = clientY
+    dragLastAt = now
     dragMoved = Math.max(dragMoved, Math.hypot(clientX - orb.x, clientY - orb.y))
     dragTargetX = clientX
     dragTargetY = clientY
   }
 
   /**
-   * 松手：保留一股惯性，然后交回重力/磁力/碰撞。
+   * 松手：**继承指针的速度**（而不是跟手拉力残留的那点速度）再乘衰减系数，然后交回重力/磁力/碰撞。
    * 返回 true 表示"这只是一次轻点"（组件据此弹名片）。
    */
   const endDrag = () => {
@@ -270,8 +302,24 @@ export const useDeveloperOrbs = (options: {
       && dragMoved <= drag.clickMaxMove
       && performance.now() - dragStartedAt <= drag.clickMaxTime
     if (orb) {
-      orb.vx *= drag.releaseRetention
-      orb.vy *= drag.releaseRetention
+      const drag = DeveloperConfig.drag
+      // 两条候选：① 指针自己的速度（甩出去的"速度继承"）② 它跟手时攒下的速度。
+      // 取更大的那条——甩得快就继承甩的速度，慢慢拖/停住时也不会比原来更差。
+      const inheritedX = dragPointerVx * drag.releaseRetention
+      const inheritedY = dragPointerVy * drag.releaseRetention
+      const ownX = orb.vx * drag.releaseRetention
+      const ownY = orb.vy * drag.releaseRetention
+      const useInherited = Math.hypot(inheritedX, inheritedY) >= Math.hypot(ownX, ownY)
+      let vx = useInherited ? inheritedX : ownX
+      let vy = useInherited ? inheritedY : ownY
+      const cap = drag.maxReleaseSpeed
+      const speed = Math.hypot(vx, vy)
+      if (speed > cap) {
+        vx = vx / speed * cap
+        vy = vy / speed * cap
+      }
+      orb.vx = vx
+      orb.vy = vy
     }
     draggingId.value = null
     return wasClick
@@ -563,6 +611,21 @@ export const useDeveloperOrbs = (options: {
     }
   }
 
+  /** 这一帧这个物理组件算不算"墙"：看不见的（例如窄屏崩飞时被淡出的文字）不算 */
+  const isVisibleObstacle = (element: HTMLElement) => {
+    const check = (element as unknown as {
+      checkVisibility?: (options?: Record<string, boolean>) => boolean
+    }).checkVisibility
+    if (typeof check !== 'function') return true
+    return check.call(element, {
+      opacityProperty: true,
+      visibilityProperty: true,
+      // 旧命名（部分 Chromium 版本）一并给上，多给不影响
+      checkOpacity: true,
+      checkVisibilityCSS: true,
+    })
+  }
+
   /** 收集场上其它物理组件，并算出它们这一帧的位移速度（用来判"扫过来"） */
   const gatherObstacles = () => {
     const config = DeveloperConfig.world
@@ -573,6 +636,9 @@ export const useDeveloperOrbs = (options: {
     const seen = new Set<HTMLElement>()
     document.querySelectorAll<HTMLElement>('.soft-physics-item').forEach((element) => {
       if (config.ignoreSelector && element.matches(config.ignoreSelector)) return
+      // 已经隐形的不当墙：窄屏打开 Donate 时文字被淡出但仍占着矩形，
+      // 不排掉的话小球会被"看不见的字"挡在半路
+      if (!isVisibleObstacle(element)) return
       const rect = element.getBoundingClientRect()
       if (rect.width <= 0 || rect.height <= 0) return
       seen.add(element)
