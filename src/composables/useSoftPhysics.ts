@@ -1,11 +1,15 @@
 import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
-import PhysicsConfig from '../configs/physics.json'
+import PhysicsConfig from '../configs/physics'
 
 type PhysicsOptions = {
   mass?: number
   influence?: number
   cooldown?: number
   settleCollisionCooldown?: number
+  /** 命中这些后代（CSS 选择器）时不发起拖拽，交给它们自己处理点击/输入。 */
+  dragIgnoreSelector?: string
+  /** 双击（两次轻点，位移没超过 doubleTapDistance）时回调；触屏上比 DOM 的 dblclick 可靠得多 */
+  onDoubleTap?: () => void
 }
 
 type Particle = {
@@ -15,6 +19,8 @@ type Particle = {
   influence: number
   cooldown: number
   settleCollisionCooldown: number
+  /** 本次归位落定时要用的碰撞冷却（一键归位时可以临时覆盖，落定后清空） */
+  settleCooldownOverride: number | null
   x: number
   y: number
   paintedX: number
@@ -41,8 +47,31 @@ type PhysicsWave = {
   y: number
   startedAt: number
   force: number
+  radiusScale: number
+  radialScale: number
+  depthScale: number
+  respectImmunity: boolean
   sourceId: number | null
   touched: Set<number>
+}
+
+export type SoftPhysicsRippleOptions = {
+  /** 波纹影响半径的倍数，1 为默认范围（例如 2 = 范围大一倍）。 */
+  radiusScale?: number
+  /** 波纹力度的倍数，1 为默认力度。 */
+  forceScale?: number
+  /** 可见波纹扩散范围的倍数，缺省时跟随 radiusScale。 */
+  visualRangeScale?: number
+  /** 可见波纹寿命的倍数，缺省时跟随范围倍数的平方根。 */
+  durationScale?: number
+  /** 跳过波纹最小间隔限制，用于刻意释放的大波纹（例如 Donate 展开）。 */
+  bypassInterval?: boolean
+  /** 径向冲量倍数：崩飞这类需要"横向飞出去"的波纹把它调大。 */
+  radialScale?: number
+  /** 深度（Z 轴）冲量倍数：调小就不那么"朝观众方向弹"。 */
+  depthScale?: number
+  /** 是否尊重"落定免疫"：归位落定那圈波纹会带上它，避免把刚归位的邻居又推走。 */
+  respectImmunity?: boolean
 }
 
 type ActivePointerHandler = {
@@ -63,6 +92,8 @@ let previousFrame = 0
 let lastRipple = 0
 let globalPointerListenerActive = false
 let returnTimingActive = false
+/** 自由场：为 true 时所有元素都不再归位（只留惯性），用于遮挡层弹开时把元素崩飞后留在原地。 */
+let fieldFree = false
 
 const dispatchReturnTimerEvent = (name: string, timestamp: number) => {
   window.dispatchEvent(new CustomEvent(name, { detail: { timestamp } }))
@@ -120,11 +151,13 @@ const propagateWaves = (items: Particle[], time: number) => {
     if (!wave) continue
 
     const elapsed = time - wave.startedAt
-    const frontRadius = elapsed * PhysicsConfig.wave.frontSpeed
-    const maximumRadius = PhysicsConfig.wave.maximumRadius
+    const frontRadius = elapsed * PhysicsConfig.wave.frontSpeed * wave.radiusScale
+    const maximumRadius = PhysicsConfig.wave.maximumRadius * wave.radiusScale
 
     for (const particle of items) {
       if (particle.id === wave.sourceId || wave.touched.has(particle.id)) continue
+      // 落定免疫中的元素不再被波纹推动（归位落定那圈波纹默认如此，避免刚归位又被推走）
+      if (wave.respectImmunity && time < particle.collisionImmuneUntil) continue
 
       const rect = particle.element.getBoundingClientRect()
       const centerX = rect.left + rect.width / 2
@@ -138,9 +171,9 @@ const propagateWaves = (items: Particle[], time: number) => {
       const falloff = (1 - distance / maximumRadius) ** PhysicsConfig.wave.falloffExponent
       const amplitude = wave.force * falloff * particle.influence / particle.mass
 
-      particle.vz += amplitude * PhysicsConfig.wave.depthImpulse
-      particle.vx += (dx / distance) * amplitude * PhysicsConfig.wave.radialImpulse
-      particle.vy += (dy / distance) * amplitude * PhysicsConfig.wave.radialImpulse
+      particle.vz += amplitude * PhysicsConfig.wave.depthImpulse * wave.depthScale
+      particle.vx += (dx / distance) * amplitude * PhysicsConfig.wave.radialImpulse * wave.radialScale
+      particle.vy += (dy / distance) * amplitude * PhysicsConfig.wave.radialImpulse * wave.radialScale
       particle.cooldownUntil = Math.max(
         particle.cooldownUntil,
         time + PhysicsConfig.wave.motionCooldown,
@@ -411,6 +444,12 @@ const tick = (time: number) => {
           PhysicsConfig.drag.maximumCompression,
         ),
       )
+    } else if (fieldFree) {
+      // 自由场：不回归原点，只保留惯性阻尼，元素就停在被撞飞的地方
+      particle.vx *= PhysicsConfig.return.inertiaDamping ** delta
+      particle.vy *= PhysicsConfig.return.inertiaDamping ** delta
+      particle.x += particle.vx * delta
+      particle.y += particle.vy * delta
     } else {
       if (time >= particle.cooldownUntil) {
         const previousX = particle.x
@@ -464,7 +503,10 @@ const tick = (time: number) => {
                 PhysicsConfig.return.impactCompression,
               )
             }
-            particle.collisionImmuneUntil = time + particle.settleCollisionCooldown
+            particle.collisionImmuneUntil = time + (
+              particle.settleCooldownOverride ?? particle.settleCollisionCooldown
+            )
+            particle.settleCooldownOverride = null
             particle.collisionActiveUntil = 0
             particle.returnRipplePending = false
             particle.returnRipplePrimed = false
@@ -494,6 +536,7 @@ const tick = (time: number) => {
                   homeCenter.y,
                   PhysicsConfig.wave.returnSpeed,
                   !rippleWasPrimed,
+                  { respectImmunity: true },
                 )
               }
             }
@@ -542,9 +585,21 @@ const ensureEngine = () => {
   if (animationFrame === null) animationFrame = window.requestAnimationFrame(tick)
 }
 
-function createRipple(clientX: number, clientY: number, force = 1) {
+const rippleDuration = () => {
+  const parsed = Number.parseFloat(PhysicsConfig.visual.rippleDuration)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 780
+}
+
+function createRipple(
+  clientX: number,
+  clientY: number,
+  force = 1,
+  rangeScale = 1,
+  durationScale = 1,
+  bypassInterval = false,
+) {
   const now = performance.now()
-  if (now - lastRipple < PhysicsConfig.wave.minimumInterval) return
+  if (!bypassInterval && now - lastRipple < PhysicsConfig.wave.minimumInterval) return
   lastRipple = now
 
   const ripple = document.createElement('span')
@@ -556,8 +611,14 @@ function createRipple(clientX: number, clientY: number, force = 1) {
     PhysicsConfig.wave.visualMinimumForce,
     PhysicsConfig.wave.visualMaximumForce,
   )))
+  ripple.style.setProperty('--ripple-range', String(Math.max(0.2, rangeScale)))
+  const lifetime = rippleDuration() * Math.max(0.2, durationScale)
+  ripple.style.setProperty('--physics-ripple-duration', `${lifetime.toFixed(0)}ms`)
   document.body.appendChild(ripple)
-  window.setTimeout(() => ripple.remove(), PhysicsConfig.wave.elementLifetime)
+  window.setTimeout(
+    () => ripple.remove(),
+    Math.max(PhysicsConfig.wave.elementLifetime, lifetime + 60),
+  )
 }
 
 function disturbField(
@@ -566,27 +627,38 @@ function disturbField(
   clientY: number,
   speed: number,
   showRipple = true,
+  options: SoftPhysicsRippleOptions = {},
 ) {
-  const strength = PhysicsConfig.wave.baseStrength + clamp(
+  const radiusScale = Math.max(0.2, options.radiusScale ?? 1)
+  const forceScale = Math.max(0, options.forceScale ?? 1)
+  const strength = (PhysicsConfig.wave.baseStrength + clamp(
     speed * PhysicsConfig.wave.speedStrength,
     0,
     PhysicsConfig.wave.maximumSpeedBonus,
-  )
+  )) * forceScale
 
   waves.push({
     x: clientX,
     y: clientY,
     startedAt: performance.now(),
     force: strength,
+    radiusScale,
+    radialScale: Math.max(0, options.radialScale ?? 1),
+    depthScale: Math.max(0, options.depthScale ?? 1),
+    respectImmunity: options.respectImmunity ?? false,
     sourceId: source?.id ?? null,
     touched: new Set<number>(),
   })
 
   if (showRipple) {
+    const visualRangeScale = Math.max(0.2, options.visualRangeScale ?? radiusScale)
     createRipple(
       clientX,
       clientY,
-      PhysicsConfig.wave.visualBaseForce + speed * PhysicsConfig.wave.visualSpeedForce,
+      (PhysicsConfig.wave.visualBaseForce + speed * PhysicsConfig.wave.visualSpeedForce) * forceScale,
+      visualRangeScale,
+      options.durationScale ?? Math.sqrt(visualRangeScale),
+      options.bypassInterval ?? false,
     )
   }
 }
@@ -595,8 +667,81 @@ export const triggerSoftPhysicsRipple = (
   clientX: number,
   clientY: number,
   speed = PhysicsConfig.wave.returnSpeed,
+  options: SoftPhysicsRippleOptions = {},
 ) => {
-  disturbField(null, clientX, clientY, speed)
+  disturbField(null, clientX, clientY, speed, true, options)
+}
+
+const findParticleByElement = (element: HTMLElement | null | undefined) => {
+  if (!element) return null
+  for (const particle of particles.values()) {
+    if (particle.element === element || particle.element.contains(element)) return particle
+  }
+  return null
+}
+
+/**
+ * 由某个元素自己发出的波纹：该元素作为源会被排除在外，不会被自己震飞。
+ * 用来做"遮挡层弹开把其它元素崩飞"。
+ */
+export const triggerSoftPhysicsSourceRipple = (
+  sourceElement: HTMLElement | null | undefined,
+  clientX: number,
+  clientY: number,
+  speed = PhysicsConfig.wave.returnSpeed,
+  options: SoftPhysicsRippleOptions = {},
+) => {
+  disturbField(findParticleByElement(sourceElement), clientX, clientY, speed, true, options)
+}
+
+/** 自由场开关：开启后所有元素停止归位，只受惯性与波纹影响。 */
+export const setSoftPhysicsFree = (free: boolean) => {
+  fieldFree = free
+}
+
+export type SoftPhysicsSettleOptions = {
+  /** 归位弹簧增益的预热量（ms）：越大归位越急（≳ boostDuration × maximumBoost 时吃满增益） */
+  returnBoost?: number
+  /** 归位落定后的碰撞冷却时长（ms）：这段时间内元素之间不再互相碰撞、也不被波纹推动 */
+  collisionCooldown?: number
+  /** 落定时是否出波纹（对没被拖拽过、纯粹被崩飞/吹动的元素也出） */
+  settleRipple?: boolean
+  /** 归位瞬间清掉正在扩散的波纹，免得刚拉回又被推走 */
+  clearWaves?: boolean
+}
+
+/**
+ * 一键归位：不是直接改坐标，而是把全体（非拖拽中的）元素切进"归位模式"——
+ * 放开归位冷却并预支弹簧增益，让它们各自被归位弹簧拉回原点（先动、再落定），
+ * 落定时照常出波纹、做挤压、并按本次的碰撞冷却免疫一段时间。
+ * 用于双击头像这种"快速归位全部元素"。
+ */
+export const settleSoftPhysics = (options: SoftPhysicsSettleOptions = {}) => {
+  const time = performance.now()
+  const boost = Math.max(0, options.returnBoost ?? PhysicsConfig.return.boostDuration)
+  const cooldown = Math.max(
+    0,
+    options.collisionCooldown ?? PhysicsConfig.defaults.settleCollisionCooldown,
+  )
+  const ripple = options.settleRipple ?? true
+
+  for (const particle of particles.values()) {
+    if (particle.dragging) continue
+
+    // 归位模式：把"已经归位了多久"预支出去，弹簧立刻以对应增益把元素拉回
+    particle.cooldownUntil = time - boost
+    // 落定时用这次指定的冷却（覆盖预设值），期间先免疫掉碰撞
+    particle.settleCooldownOverride = cooldown
+    particle.collisionImmuneUntil = Math.max(particle.collisionImmuneUntil, time + cooldown)
+    particle.collisionActiveUntil = 0
+    particle.dragVisualActive.value = false
+    particle.returnRipplePending = ripple
+    particle.returnRipplePrimed = false
+    particle.collisionReturnPending = false
+  }
+
+  if (options.clearWaves ?? true) waves.length = 0
+  ensureEngine()
 }
 
 function handleGlobalPointerDown(event: PointerEvent) {
@@ -615,6 +760,15 @@ function handleGlobalPointerRelease(event: PointerEvent) {
   activePointerHandlers.get(event.pointerId)?.release(event)
 }
 
+/**
+ * 物理条目上一律禁掉长按上下文菜单：手机上长按会弹「存储图像 / 在新标签页打开」，
+ * 浏览器随后发 pointercancel，拖拽当场断掉。写在这里，组件忘了加 @contextmenu.prevent 也安全。
+ */
+function handleGlobalContextMenu(event: MouseEvent) {
+  const target = event.target
+  if (target instanceof Element && target.closest('.soft-physics-item')) event.preventDefault()
+}
+
 export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   const elementRef: Ref<HTMLElement | null> = ref(null)
   const dragging = ref(false)
@@ -631,6 +785,10 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
   let previousPointerTime = 0
   let moved = false
   let suppressClickUntil = 0
+  // 双击判定：记上一次"没位移的轻点"的时间与落点
+  let lastTapAt = 0
+  let lastTapX = 0
+  let lastTapY = 0
 
   onMounted(() => {
     if (!elementRef.value) return
@@ -651,6 +809,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
         0,
         options.settleCollisionCooldown ?? PhysicsConfig.defaults.settleCollisionCooldown,
       ),
+      settleCooldownOverride: null,
       x: 0,
       y: 0,
       paintedX: 0,
@@ -679,14 +838,20 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       window.addEventListener('pointermove', handleGlobalPointerMove, { passive: true })
       window.addEventListener('pointerup', handleGlobalPointerRelease, { passive: true })
       window.addEventListener('pointercancel', handleGlobalPointerRelease, { passive: true })
+      document.addEventListener('contextmenu', handleGlobalContextMenu)
       globalPointerListenerActive = true
     }
+    // 触屏上很常见：拖到一半切后台 / 窗口失焦，pointerup 永远不来 —— 主动收尾
+    window.addEventListener('blur', cancelActiveDrag)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     paintParticle(particle)
     ensureEngine()
   })
 
   onBeforeUnmount(() => {
     if (activePointer !== null) activePointerHandlers.delete(activePointer)
+    window.removeEventListener('blur', cancelActiveDrag)
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
     if (!particle) return
     particles.delete(particle.id)
     particle = null
@@ -695,6 +860,7 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       window.removeEventListener('pointermove', handleGlobalPointerMove)
       window.removeEventListener('pointerup', handleGlobalPointerRelease)
       window.removeEventListener('pointercancel', handleGlobalPointerRelease)
+      document.removeEventListener('contextmenu', handleGlobalContextMenu)
       activePointerHandlers.clear()
       globalPointerListenerActive = false
     }
@@ -706,6 +872,12 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       || activePointer !== null
       || (event.pointerType === 'mouse' && event.button !== 0)
     ) return
+
+    // 内部按钮 / 链接自己处理交互，不从它们身上发起拖拽
+    if (options.dragIgnoreSelector) {
+      const target = event.target
+      if (target instanceof Element && target.closest(options.dragIgnoreSelector)) return
+    }
 
     activePointer = event.pointerId
     activePointerHandlers.set(event.pointerId, {
@@ -786,8 +958,13 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
       moved = true
       dragVisualActive.value = true
       particle.collisionActiveUntil = Number.POSITIVE_INFINITY
-      if (!particle.element.hasPointerCapture(event.pointerId)) {
-        particle.element.setPointerCapture(event.pointerId)
+      // 触屏上指针可能已经失效，捕获失败不能中断这次拖拽（后面的 move 仍会从 window 冒泡上来）
+      try {
+        if (!particle.element.hasPointerCapture(event.pointerId)) {
+          particle.element.setPointerCapture(event.pointerId)
+        }
+      } catch {
+        // 捕获失败就退化成"不捕获"，拖拽照旧
       }
     }
     if (moved) particle.returnRipplePending = true
@@ -797,14 +974,18 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     previousPointerTime = now
   }
 
-  const pointerUp = (event: PointerEvent) => {
-    if (!particle || activePointer !== event.pointerId) return
+  /** 收尾一次拖拽（松手 / 指针被系统取消 / 失焦切后台都走这里） */
+  const finishDrag = (pointerId: number) => {
+    if (!particle || activePointer !== pointerId) return
 
-    const pointerId = activePointer
     activePointer = null
     activePointerHandlers.delete(pointerId)
-    if (particle.element.hasPointerCapture(pointerId)) {
-      particle.element.releasePointerCapture(pointerId)
+    try {
+      if (particle.element.hasPointerCapture(pointerId)) {
+        particle.element.releasePointerCapture(pointerId)
+      }
+    } catch {
+      // 指针已经没了，忽略
     }
 
     suppressClickUntil = moved
@@ -821,6 +1002,38 @@ export const useSoftPhysics = (options: PhysicsOptions = {}) => {
     particle.vy *= PhysicsConfig.drag.releaseVelocityRetention
     dragging.value = false
     if (moved) beginReturnTiming(performance.now())
+
+    // 双击识别放在指针层（触屏上的 click/dblclick 会被缩放手势或轻微位移吃掉），
+    // 且必须放在 dragging 已清零之后——回调里要让"被点的这个元素"自己也进入归位模式。
+    if (moved) {
+      lastTapAt = 0
+    } else {
+      const now = performance.now()
+      const isDoubleTap = now - lastTapAt <= PhysicsConfig.drag.doubleTapInterval
+        && Math.hypot(pointerStartX - lastTapX, pointerStartY - lastTapY)
+          <= PhysicsConfig.drag.doubleTapDistance
+      if (isDoubleTap) {
+        lastTapAt = 0
+        options.onDoubleTap?.()
+      } else {
+        lastTapAt = now
+        lastTapX = pointerStartX
+        lastTapY = pointerStartY
+      }
+    }
+  }
+
+  const pointerUp = (event: PointerEvent) => {
+    finishDrag(event.pointerId)
+  }
+
+  /** 失焦 / 切到后台：指针事件不会再送达，主动当作松手处理，免得拖拽卡在半路 */
+  const cancelActiveDrag = () => {
+    if (activePointer !== null) finishDrag(activePointer)
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) cancelActiveDrag()
   }
 
   const clickCapture = (event: MouseEvent) => {

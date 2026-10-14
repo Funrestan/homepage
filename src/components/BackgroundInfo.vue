@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import SiteConfig from '../configs/site.json';
+import SiteConfig from '../configs/site';
 
 type BackgroundInfo = {
   author: string;

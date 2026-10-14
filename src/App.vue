@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import SiteConfig from './configs/site.json';
-import AuthorInfo from './configs/author.json';
-import PhysicsConfig from './configs/physics.json';
-import UiConfig from './configs/ui.json';
+import SiteConfig from './configs/site';
+import AuthorInfo from './configs/author';
+import PhysicsConfig from './configs/physics';
+import UiConfig from './configs/ui';
+import DonateConfig from './configs/donate';
 
 import { Icon } from '@iconify/vue'
 import AnimatedIdentity from './components/AnimatedIdentity.vue';
 import BackgroundInfo from './components/BackgroundInfo.vue';
+import DonatePanel from './components/DonatePanel.vue';
 import HitokotoTokens from './components/HitokotoTokens.vue';
 import PhysicsItem from './components/PhysicsItem.vue';
 import ReturnTimer from './components/ReturnTimer.vue';
-import AnimationConfig from './configs/animation.json';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import AnimationConfig from './configs/animation';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue';
+import { isDonateLink, authorLinks, type ProfileLink } from './composables/donateLink';
+import { settleSoftPhysics, triggerSoftPhysicsRipple } from './composables/useSoftPhysics';
+import {
+  claimRightStage,
+  DONATE_STAGE_OWNER,
+  RIGHT_STAGE_EVENT,
+} from './composables/blockStage';
 // set background
 var defaultBackground = `url(${SiteConfig['background-img']})`;
 var darkBackground = `url(${SiteConfig['darkmode-background-img']})`;
@@ -40,9 +49,20 @@ type HitokotoHandle = {
 const avatarItem = ref<ElementHandle | null>(null);
 const identityItem = ref<ElementHandle | null>(null);
 const hitokotoItem = ref<HitokotoHandle | null>(null);
+const donateItem = ref<ElementHandle | null>(null);
+const donatePanel = ref<InstanceType<typeof DonatePanel> | null>(null);
+const donateSlotHidden = ref(false);
+const donateInRow = ref(true);
+const donatePhase = ref<'idle' | 'opening' | 'open' | 'closing'>('idle');
 let refreshTimer: number | null = null;
 let hitokotoRefreshing = false;
 let themeOverride: boolean | null = null;
+
+const donateFeatureEnabled = DonateConfig.enable && authorLinks.some(isDonateLink);
+const donateLinkEntry = authorLinks.find(isDonateLink) ?? null;
+const visibleLinks = computed(() => authorLinks.filter(
+  (link) => !(donateFeatureEnabled && isDonateLink(link) && !donateInRow.value),
+));
 
 const applyTheme = (isDark: boolean) => {
   usingDarkBackground.value = isDark;
@@ -108,6 +128,153 @@ const revealHitokoto = () => {
 
 const registerEntrance = (animation: Animation) => {
   entranceAnimations.push(animation);
+}
+
+type DonatePoint = { x: number; y: number }
+type SlotSnapshot = { element: HTMLElement; left: number }
+
+const setDonateItem = (link: ProfileLink, element: Element | ComponentPublicInstance | null) => {
+  if (!isDonateLink(link)) return;
+  donateItem.value = element as unknown as ElementHandle | null;
+}
+
+/** 右侧板块（侧栏之右的整块区域）的中心；窄屏时退回视口中心。 */
+const donateTargetCenter = (): DonatePoint => {
+  const rect = profilePanel.value?.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const rightRegion = rect ? viewportWidth - rect.right : 0;
+  if (!rect || rightRegion < AnimationConfig.donate.minimumRightRegion) {
+    return { x: viewportWidth / 2, y: viewportHeight / 2 };
+  }
+  return { x: rect.right + rightRegion / 2, y: viewportHeight / 2 };
+}
+
+const donateVisualRect = (link: ProfileLink) => {
+  if (!isDonateLink(link)) return null;
+  const element = donateItem.value?.getElement();
+  const visual = element?.querySelector<HTMLElement>('.physics-item__content') ?? element;
+  return visual ? visual.getBoundingClientRect() : null;
+}
+
+const snapshotSlots = (): SlotSnapshot[] => Array.from(
+  profileLinks.value?.querySelectorAll<HTMLElement>('.profile-link-slot') ?? [],
+).map((element) => ({ element, left: element.getBoundingClientRect().left }));
+
+/** 下排增删条目后，用 FLIP 让剩下的条目滑到新位置。 */
+const playSlotReflow = (snapshot: SlotSnapshot[]) => {
+  const { reflowDuration, reflowEasing } = AnimationConfig.donate;
+  snapshot.forEach(({ element, left }) => {
+    const delta = left - element.getBoundingClientRect().left;
+    if (Math.abs(delta) < 0.5) return;
+    element.animate([
+      { offset: 0, transform: `translate3d(${delta.toFixed(2)}px, 0, 0)` },
+      { offset: 1, transform: 'translate3d(0, 0, 0)' },
+    ], { duration: reflowDuration, easing: reflowEasing });
+  });
+}
+
+const handleLinkClick = (link: ProfileLink, event: MouseEvent) => {
+  if (!donateFeatureEnabled || !isDonateLink(link)) return;
+  event.preventDefault();
+  void openDonate();
+}
+
+const openDonate = async () => {
+  if (!donateFeatureEnabled || !donateLinkEntry || donatePhase.value !== 'idle') return;
+  const originRect = donateVisualRect(donateLinkEntry);
+  if (!originRect) return;
+  const origin = {
+    x: originRect.left + originRect.width / 2,
+    y: originRect.top + originRect.height / 2,
+  };
+  const target = donateTargetCenter();
+  const { rippleRangeScale, rippleForceScale, rippleSpeed } = AnimationConfig.donate;
+
+  donatePhase.value = 'opening';
+  // 占用右侧中心：未来别的块照同一协议 claim / 监听，互相让位
+  claimRightStage(DONATE_STAGE_OWNER);
+
+  // 按下即释放范围大一倍的波纹，随后 donate 从下排移除。
+  triggerSoftPhysicsRipple(origin.x, origin.y, rippleSpeed, {
+    radiusScale: rippleRangeScale,
+    forceScale: rippleForceScale,
+    visualRangeScale: rippleRangeScale,
+    bypassInterval: true,
+  });
+  const slots = snapshotSlots();
+  donateInRow.value = false;
+  await nextTick();
+  playSlotReflow(slots);
+
+  // 按钮实体缓动到右侧板块中心，再由中心渐显放大内容块。
+  const panel = donatePanel.value;
+  if (!panel) {
+    donateInRow.value = true;
+    donatePhase.value = 'idle';
+    return;
+  }
+  await panel.openFrom(origin, target);
+  donatePhase.value = 'open';
+}
+
+/**
+ * 归位落定：与真实拖拽归位同款反馈——在原位置丢一圈波纹（推动邻居），
+ * 并让条目自己做一次急停挤压，避免"按钮是 clone 飞回来的"就漏掉物理反馈。
+ */
+const playSettleRipple = (point: DonatePoint) => {
+  triggerSoftPhysicsRipple(point.x, point.y, PhysicsConfig.wave.returnSpeed);
+  const element = donateItem.value?.getElement();
+  if (!element) return;
+  element.classList.remove('is-impacting');
+  void element.offsetWidth;
+  element.classList.add('is-impacting');
+  window.setTimeout(
+    () => element.classList.remove('is-impacting'),
+    PhysicsConfig.return.impactClassDuration,
+  );
+}
+
+const closeDonate = async () => {
+  if (donatePhase.value !== 'open' || !donateLinkEntry) return;
+  const panel = donatePanel.value;
+  if (!panel) return;
+  donatePhase.value = 'closing';
+  const center = donateTargetCenter();
+
+  // 先把 donate 放回下排（先隐藏），量出落点，其余条目 FLIP 让位；
+  // 然后块与按钮共用一根弹簧同时动：块跟着按钮往回缩，按钮过冲过落点再弹回。
+  const slots = snapshotSlots();
+  donateSlotHidden.value = true;
+  donateInRow.value = true;
+  await nextTick();
+  playSlotReflow(slots);
+
+  const landingRect = donateVisualRect(donateLinkEntry);
+  const landing = landingRect
+    ? { x: landingRect.left + landingRect.width / 2, y: landingRect.top + landingRect.height / 2 }
+    : center;
+  await panel.closeTo(center, landing);
+
+  donateSlotHidden.value = false;
+  panel.hideFlight();
+  await nextTick();
+  playSettleRipple(landing);
+  donatePhase.value = 'idle';
+}
+
+/**
+ * 双击头像：让全体元素进入"归位模式"（由归位弹簧拉回，不是瞬移），
+ * 落定时照常出波纹/挤压，并按 ui.ts 的 stabilize 设定碰撞冷却。
+ */
+const stabilizeAllElements = () => {
+  const { stabilize } = UiConfig;
+  settleSoftPhysics({
+    returnBoost: stabilize.returnBoost,
+    collisionCooldown: stabilize.collisionCooldown,
+    settleRipple: stabilize.settleRipple,
+    clearWaves: stabilize.clearWaves,
+  });
 }
 
 const runEntranceAnimation = async () => {
@@ -300,6 +467,8 @@ document.documentElement.style.setProperty('--physics-ripple-duration', PhysicsC
 document.documentElement.style.setProperty('--physics-ripple-end-scale', String(PhysicsConfig.visual.rippleEndScale));
 document.documentElement.style.setProperty('--physics-impact-duration', PhysicsConfig.visual.impactDuration);
 document.documentElement.style.setProperty('--physics-pickup-duration', PhysicsConfig.visual.pickupDuration);
+document.documentElement.style.setProperty('--donate-scatter-fade-in', `${AnimationConfig.donate.scatter.fadeInDuration}ms`);
+document.documentElement.style.setProperty('--donate-scatter-fade-out', `${AnimationConfig.donate.scatter.fadeOutDuration}ms`);
 document.documentElement.style.setProperty('--hitokoto-shell-fade-duration', `${AnimationConfig.hitokoto.shellFadeDuration}ms`);
 document.documentElement.style.setProperty('--hitokoto-shell-move-duration', `${AnimationConfig.hitokoto.shellMoveDuration}ms`);
 document.documentElement.style.setProperty('--hitokoto-shell-start-blur', `${AnimationConfig.hitokoto.shellStartBlur}px`);
@@ -311,6 +480,16 @@ document.documentElement.style.setProperty('--theme-transition-duration', `${UiC
 document.documentElement.style.setProperty('--theme-background-fade-duration', `${UiConfig.themeToggle.backgroundFadeDuration}ms`);
 document.documentElement.style.setProperty('--theme-transition-easing', UiConfig.themeToggle.transitionEasing);
 
+/**
+ * 右侧板块同一时刻只给一个块用：别的块 claimRightStage(名字) 时，Donate 让位。
+ * （点面板外面不再收回 Donate，只有关闭按钮 / Esc / 新的块占用右侧中心才会收起。）
+ */
+const handleRightStageClaim = (event: Event) => {
+  const owner = (event as CustomEvent<{ owner?: string }>).detail?.owner;
+  if (!owner || owner === DONATE_STAGE_OWNER) return;
+  void closeDonate();
+}
+
 let colorSchemeQuery: MediaQueryList | null = null;
 const handleColorSchemeChange = () => {
   if (themeOverride === null) setCurrentTheme();
@@ -319,12 +498,14 @@ const handleColorSchemeChange = () => {
 onMounted(() => {
   colorSchemeQuery = window.matchMedia('(prefers-color-scheme: dark)');
   colorSchemeQuery.addEventListener('change', handleColorSchemeChange);
+  window.addEventListener(RIGHT_STAGE_EVENT, handleRightStageClaim);
   void fetchHitokoto();
   void runEntranceAnimation();
 });
 
 onBeforeUnmount(() => {
   if (colorSchemeQuery) colorSchemeQuery.removeEventListener('change', handleColorSchemeChange);
+  window.removeEventListener(RIGHT_STAGE_EVENT, handleRightStageClaim);
   if (refreshTimer !== null) window.clearTimeout(refreshTimer);
   entranceAnimations.forEach((animation) => animation.cancel());
 });
@@ -346,6 +527,8 @@ onBeforeUnmount(() => {
         :settle-collision-cooldown="PhysicsConfig.presets.avatar.settleCollisionCooldown"
         shape="round"
         class="profile-avatar-shell"
+        title="双击快速归位所有元素"
+        @double-tap="stabilizeAllElements"
       >
         <ReturnTimer v-if="UiConfig.returnTimer.enable" />
         <img :src="AuthorInfo.avatar" alt="avatar" draggable="false"
@@ -373,69 +556,73 @@ onBeforeUnmount(() => {
         />
       </div>
       <div ref="profileLinks" class="profile-links flex text-2xl gap-2">
-        <PhysicsItem
-          v-for="value in AuthorInfo.links"
-          :key="value.name"
-          :mass="PhysicsConfig.presets.link.mass"
-          :influence="PhysicsConfig.presets.link.influence"
-          :cooldown="PhysicsConfig.presets.link.cooldown"
-          :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
-          shape="compact"
-          class="profile-link-body"
-        >
-          <a :href="value.url" target="_blank" rel="noopener noreferrer" draggable="false"
-                class="profile-link text-gray-700 hover:text-gray-900
-                      dark:text-gray-300 dark:hover:text-white
-                      transition-all duration-300 group relative
-                      flex-col flex items-center justify-center"
-                :style="{
-                  '--icon-default': value.defaultColor || undefined,
-                  '--icon-hover': value.hoverColor || undefined,
-                }">
-              <Icon :icon="value.icon" class="icon-color" />
-              <div class="h-full text-sm absolute pt-10 opacity-0 transition-all duration-200
-                          hover:opacity-100">
-                {{ value.name }}
-              </div>
-          </a>
-        </PhysicsItem>
-        <PhysicsItem
-          v-if="UiConfig.themeToggle.enable"
-          :mass="PhysicsConfig.presets.link.mass"
-          :influence="PhysicsConfig.presets.link.influence"
-          :cooldown="PhysicsConfig.presets.link.cooldown"
-          :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
-          shape="compact"
-          class="profile-link-body"
-        >
-          <button
-            type="button"
-            class="profile-link theme-toggle text-gray-700 hover:text-gray-900
-                  dark:text-gray-300 dark:hover:text-white
-                  transition-all duration-300 group relative
-                  flex-col flex items-center justify-center"
-            :aria-label="themeToggleLabel"
-            :aria-pressed="usingDarkBackground"
-            :title="themeToggleLabel"
-            @click.stop="toggleTheme"
-            @dragstart.prevent
+        <div v-for="value in visibleLinks" :key="value.name" class="profile-link-slot">
+          <PhysicsItem
+            :ref="(element) => setDonateItem(value, element)"
+            :mass="PhysicsConfig.presets.link.mass"
+            :influence="PhysicsConfig.presets.link.influence"
+            :cooldown="PhysicsConfig.presets.link.cooldown"
+            :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
+            shape="compact"
+            class="profile-link-body"
+            :class="{ 'is-slot-hidden': donateSlotHidden && isDonateLink(value) }"
           >
-            <span class="theme-toggle__icons" aria-hidden="true">
-              <Icon
-                :icon="UiConfig.themeToggle.darkIcon"
-                class="icon-color theme-toggle__icon theme-toggle__icon--dark"
-              />
-              <Icon
-                :icon="UiConfig.themeToggle.lightIcon"
-                class="icon-color theme-toggle__icon theme-toggle__icon--light"
-              />
-            </span>
-            <div class="h-full text-sm absolute pt-10 opacity-0 transition-all duration-200
-                        group-hover:opacity-100">
-              {{ themeToggleTooltip }}
-            </div>
-          </button>
-        </PhysicsItem>
+            <a :href="value.url" target="_blank" rel="noopener noreferrer" draggable="false"
+                  class="profile-link text-gray-700 hover:text-gray-900
+                        dark:text-gray-300 dark:hover:text-white
+                        transition-all duration-300 group relative
+                        flex-col flex items-center justify-center"
+                  :style="{
+                    '--icon-default': value.defaultColor || undefined,
+                    '--icon-hover': value.hoverColor || undefined,
+                  }"
+                  @click="handleLinkClick(value, $event)">
+                <Icon :icon="value.icon" class="icon-color" />
+                <div class="h-full text-sm absolute pt-10 opacity-0 transition-all duration-200
+                            hover:opacity-100">
+                  {{ value.name }}
+                </div>
+            </a>
+          </PhysicsItem>
+        </div>
+        <div v-if="UiConfig.themeToggle.enable" class="profile-link-slot">
+          <PhysicsItem
+            :mass="PhysicsConfig.presets.link.mass"
+            :influence="PhysicsConfig.presets.link.influence"
+            :cooldown="PhysicsConfig.presets.link.cooldown"
+            :settle-collision-cooldown="PhysicsConfig.presets.link.settleCollisionCooldown"
+            shape="compact"
+            class="profile-link-body"
+          >
+            <button
+              type="button"
+              class="profile-link theme-toggle text-gray-700 hover:text-gray-900
+                    dark:text-gray-300 dark:hover:text-white
+                    transition-all duration-300 group relative
+                    flex-col flex items-center justify-center"
+              :aria-label="themeToggleLabel"
+              :aria-pressed="usingDarkBackground"
+              :title="themeToggleLabel"
+              @click.stop="toggleTheme"
+              @dragstart.prevent
+            >
+              <span class="theme-toggle__icons" aria-hidden="true">
+                <Icon
+                  :icon="UiConfig.themeToggle.darkIcon"
+                  class="icon-color theme-toggle__icon theme-toggle__icon--dark"
+                />
+                <Icon
+                  :icon="UiConfig.themeToggle.lightIcon"
+                  class="icon-color theme-toggle__icon theme-toggle__icon--light"
+                />
+              </span>
+              <div class="h-full text-sm absolute pt-10 opacity-0 transition-all duration-200
+                          group-hover:opacity-100">
+                {{ themeToggleTooltip }}
+              </div>
+            </button>
+          </PhysicsItem>
+        </div>
       </div>
       <!-- </div> -->
     </div>
@@ -453,6 +640,7 @@ onBeforeUnmount(() => {
         class="invisible md:visible right-0 bottom-0 absolute">
         <BackgroundInfo :dark-mod="usingDarkBackground"/>
       </div>
+    <DonatePanel ref="donatePanel" @close="closeDonate" />
   </div>
 </template>
 
@@ -520,6 +708,16 @@ onBeforeUnmount(() => {
 
 .profile-link-body {
   margin-inline: 0.125rem;
+}
+
+.profile-link-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-link-slot .is-slot-hidden {
+  visibility: hidden;
 }
 
 .profile-link {

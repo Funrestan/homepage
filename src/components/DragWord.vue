@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import PhysicsConfig from '../configs/physics.json'
+import PhysicsConfig from '../configs/physics'
 import { useSoftPhysics } from '../composables/useSoftPhysics'
 
 const props = withDefaults(defineProps<{
@@ -50,8 +50,8 @@ defineExpose({
     @pointerdown="pointerDown"
     @pointerup="pointerUp"
     @pointercancel="pointerUp"
-    @lostpointercapture="pointerUp"
     @dragstart.prevent
+    @contextmenu.prevent
     @click.capture="clickCapture"
   >
     <span class="drag-word__float">
@@ -70,6 +70,9 @@ defineExpose({
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  /* 移动端文字更容易被长按选中/弹菜单，这里和 PhysicsItem 保持同一套加固 */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .drag-word.is-dragging {

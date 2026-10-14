@@ -37,3 +37,7 @@ __screenshots__/
 
 # Vite
 *.timestamp-*-*.mjs
+
+# meow-memory 本地记忆库（误删不可恢复，勿提交）
+.dsh-meow/
+

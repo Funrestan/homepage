@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import UiConfig from '../configs/ui.json'
+import UiConfig from '../configs/ui'
 import {
   SOFT_PHYSICS_TIMER_COMPLETE_EVENT,
   SOFT_PHYSICS_TIMER_START_EVENT,
@@ -13,21 +13,39 @@ type TimerPhase = 'hidden' | 'running' | 'complete' | 'dismissing'
 const timerRoot = ref<HTMLElement | null>(null)
 const phase = ref<TimerPhase>('hidden')
 const elapsed = ref(0)
+const showHint = ref(false)
 let startedAt: number | null = null
 let animationFrame: number | null = null
 let displayTimer: number | null = null
 let dismissTimer: number | null = null
+let hintTimer: number | null = null
 
 const timerStyle = {
   '--return-timer-offset': UiConfig.returnTimer.offsetTop,
   '--return-timer-minimum-width': UiConfig.returnTimer.minimumWidth,
   '--return-timer-fade-duration': `${UiConfig.returnTimer.fadeDuration}ms`,
+  '--return-timer-hint-fade-duration': `${UiConfig.returnTimer.hint.fadeDuration}ms`,
 }
 
 const formattedElapsed = computed(() => (elapsed.value / 1000).toFixed(UiConfig.returnTimer.precision))
 const label = computed(() => phase.value === 'complete' || phase.value === 'dismissing'
   ? UiConfig.returnTimer.completeLabel
   : UiConfig.returnTimer.runningLabel)
+
+/** 计时超过 hint.after 后，计时文字与"双击头像快速归位"按 hint.interval 交替、每次 hint.fadeDuration 淡入淡出 */
+const stopHintLoop = () => {
+  if (hintTimer !== null) window.clearInterval(hintTimer)
+  hintTimer = null
+  showHint.value = false
+}
+
+const startHintLoop = () => {
+  if (hintTimer !== null) return
+  showHint.value = false
+  hintTimer = window.setInterval(() => {
+    showHint.value = !showHint.value
+  }, UiConfig.returnTimer.hint.interval)
+}
 
 const clearDismissTimers = () => {
   if (displayTimer !== null) window.clearTimeout(displayTimer)
@@ -47,12 +65,14 @@ const updateElapsed = (time: number) => {
     return
   }
   elapsed.value = Math.max(0, time - startedAt)
+  if (elapsed.value >= UiConfig.returnTimer.hint.after) startHintLoop()
   animationFrame = window.requestAnimationFrame(updateElapsed)
 }
 
 const handleStart = (event: Event) => {
   const timestamp = (event as TimerEvent).detail.timestamp
   clearDismissTimers()
+  stopHintLoop()
   stopAnimationFrame()
   startedAt = timestamp
   elapsed.value = 0
@@ -66,6 +86,7 @@ const handleComplete = async (event: Event) => {
   elapsed.value = Math.max(0, timestamp - startedAt)
   phase.value = 'complete'
   stopAnimationFrame()
+  stopHintLoop()
   await nextTick()
 
   const rect = timerRoot.value?.getBoundingClientRect()
@@ -95,6 +116,7 @@ onBeforeUnmount(() => {
   window.removeEventListener(SOFT_PHYSICS_TIMER_START_EVENT, handleStart)
   window.removeEventListener(SOFT_PHYSICS_TIMER_COMPLETE_EVENT, handleComplete)
   clearDismissTimers()
+  stopHintLoop()
   stopAnimationFrame()
 })
 </script>
@@ -112,9 +134,16 @@ onBeforeUnmount(() => {
     aria-live="polite"
     aria-atomic="true"
   >
-    <span>{{ label }}</span>
-    <strong>{{ formattedElapsed }}</strong>
-    <span>{{ UiConfig.returnTimer.unit }}</span>
+    <span class="return-timer__layer" :class="{ 'is-hidden': showHint }">
+      <span>{{ label }}</span>
+      <strong>{{ formattedElapsed }}</strong>
+      <span>{{ UiConfig.returnTimer.unit }}</span>
+    </span>
+    <span
+      class="return-timer__layer return-timer__layer--hint"
+      :class="{ 'is-hidden': !showHint }"
+      aria-hidden="true"
+    >{{ UiConfig.returnTimer.hint.label }}</span>
   </output>
 </template>
 
@@ -156,6 +185,33 @@ onBeforeUnmount(() => {
   font-size: 0.76rem;
   font-weight: 680;
   text-align: right;
+}
+
+/* 计时文字与提示两层叠放交叉淡入淡出；提示层绝对定位，宽度变化不会带动整体跳动 */
+.return-timer__layer {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.32rem;
+  white-space: nowrap;
+  transition: opacity var(--return-timer-hint-fade-duration, 300ms) ease;
+}
+
+.return-timer__layer.is-hidden {
+  opacity: 0;
+}
+
+.return-timer__layer--hint {
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  color: rgb(17 92 151);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+:global(html.dark .return-timer__layer--hint) {
+  color: rgb(147 213 255);
 }
 
 .return-timer.is-visible {

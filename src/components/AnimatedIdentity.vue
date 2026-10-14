@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import AnimationConfig from '../configs/animation.json'
-import IdentityConfig from '../configs/identity.json'
+import AnimationConfig from '../configs/animation'
+import IdentityConfig from '../configs/identity'
 import DragWord from './DragWord.vue'
 
 type Phase = 'intro' | 'illuminate' | 'extract' | 'merge' | 'resolve' | 'done'

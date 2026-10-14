@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import AnimationConfig from '../configs/animation.json'
-import PhysicsConfig from '../configs/physics.json'
+import AnimationConfig from '../configs/animation'
+import PhysicsConfig from '../configs/physics'
 import DragWord from './DragWord.vue'
 
 type HitokotoToken = {

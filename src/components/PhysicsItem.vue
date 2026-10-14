@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import PhysicsConfig from '../configs/physics.json'
+import PhysicsConfig from '../configs/physics'
 import { useSoftPhysics } from '../composables/useSoftPhysics'
 
 const props = withDefaults(defineProps<{
@@ -8,13 +8,24 @@ const props = withDefaults(defineProps<{
   cooldown?: number
   settleCollisionCooldown?: number
   shape?: 'round' | 'compact' | 'soft'
+  /** false = 拖动时不显示描边与高亮（大块区域用） */
+  highlight?: boolean
+  /** 命中这些后代（CSS 选择器）时不发起拖拽 */
+  dragIgnoreSelector?: string
 }>(), {
   mass: PhysicsConfig.presets.container.mass,
   influence: PhysicsConfig.presets.container.influence,
   cooldown: PhysicsConfig.presets.container.cooldown,
   settleCollisionCooldown: PhysicsConfig.presets.container.settleCollisionCooldown,
   shape: 'soft',
+  highlight: true,
+  dragIgnoreSelector: undefined,
 })
+
+const emit = defineEmits<{
+  /** 双击（两次轻点）：触屏上比 DOM 的 dblclick 可靠 */
+  doubleTap: []
+}>()
 
 const {
   elementRef,
@@ -28,6 +39,8 @@ const {
   influence: props.influence,
   cooldown: props.cooldown,
   settleCollisionCooldown: props.settleCollisionCooldown,
+  dragIgnoreSelector: props.dragIgnoreSelector,
+  onDoubleTap: () => emit('doubleTap'),
 })
 
 defineExpose({
@@ -39,12 +52,19 @@ defineExpose({
   <span
     ref="elementRef"
     class="soft-physics-item physics-item"
-    :class="[`physics-item--${props.shape}`, { 'is-dragging': dragging, 'is-drag-active': dragVisualActive }]"
+    :class="[
+      `physics-item--${props.shape}`,
+      {
+        'physics-item--plain': !props.highlight,
+        'is-dragging': dragging,
+        'is-drag-active': dragVisualActive,
+      },
+    ]"
     @pointerdown="pointerDown"
     @pointerup="pointerUp"
     @pointercancel="pointerUp"
-    @lostpointercapture="pointerUp"
     @dragstart.prevent
+    @contextmenu.prevent
     @click.capture="clickCapture"
   >
     <span class="physics-item__content">
@@ -63,6 +83,10 @@ defineExpose({
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
+  /* 移动端：长按不要弹「存储图像 / 在新标签打开」这类系统菜单，
+     否则浏览器会顺手发一个 pointercancel，拖拽就"断"了 */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .physics-item.is-dragging {
